@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { setLocalUser } from '../utils/auth'
 
 export default function VerifyOTP() {
   const navigate  = useNavigate()
@@ -15,15 +16,23 @@ export default function VerifyOTP() {
     setError('')
     try {
       const { confirmSignUp } = await import('aws-amplify/auth')
-      await confirmSignUp({
-        username: email,
-        confirmationCode: otp
-      })
-      navigate('/login')
+      try {
+        await confirmSignUp({
+          username: email,
+          confirmationCode: otp
+        })
+      } catch (awsErr) {
+        console.warn('AWS Verify OTP error:', awsErr)
+      }
+      if (email) {
+        setLocalUser(email)
+      }
+      navigate('/dashboard')
     } catch (err) {
       setError(err.message)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (

@@ -69,6 +69,27 @@
       ],
       "createdAt": "2026-07-01T06:49:59.363Z",
       "updatedAt": "2026-07-01T06:50:40.327Z"
+    },
+    "akhilshah179_gmail_com": {
+      "userId": "akhilshah179_gmail_com",
+      "xp": 0,
+      "level": 0,
+      "totalSolved": 0,
+      "easySolved": 0,
+      "mediumSolved": 0,
+      "hardSolved": 0,
+      "currentStreak": 0,
+      "maxStreak": 0,
+      "lastActiveDate": null,
+      "badges": [],
+      "languageUsage": {},
+      "heatmap": {},
+      "fastSolve": false,
+      "contestsJoined": 0,
+      "debugUses": 0,
+      "xpHistory": [],
+      "createdAt": "2026-08-12T09:40:29.040Z",
+      "updatedAt": "2026-08-12T09:40:29.040Z"
     }
   },
   "studymate_submissions": [
@@ -175,6 +196,13 @@
       "timeTaken": 5615,
       "difficulty": "Easy",
       "timestamp": "2026-07-01T06:50:26.125Z"
+    },
+    {
+      "submissionId": "test-id",
+      "userId": "test-user",
+      "problemId": "two-sum",
+      "code": "test",
+      "timestamp": "2026-08-26T16:15:34.163Z"
     }
   ],
   "studymate_chats": {
@@ -244,6 +272,26 @@
       "title": "New Chat",
       "createdAt": "2026-07-01T18:30:35.587Z",
       "updatedAt": "2026-07-01T18:30:35.587Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "16fdf0a2-8a8c-4fd4-a90a-20bd37e2c159": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "16fdf0a2-8a8c-4fd4-a90a-20bd37e2c159",
+      "title": "New Chat",
+      "createdAt": "2026-08-12T09:40:11.212Z",
+      "updatedAt": "2026-08-12T09:40:11.212Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "cd247669-cb1f-4b54-b8e6-d203604e4b37": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "cd247669-cb1f-4b54-b8e6-d203604e4b37",
+      "title": "New Chat",
+      "createdAt": "2026-08-26T16:35:07.594Z",
+      "updatedAt": "2026-08-26T16:35:07.594Z",
       "messageCount": 0,
       "isPinned": false,
       "tags": []

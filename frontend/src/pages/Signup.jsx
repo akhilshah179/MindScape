@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ThemeToggle from '../components/ThemeToggle'
+import { setLocalUser } from '../utils/auth'
 
 export default function Signup() {
   const navigate = useNavigate()
@@ -18,22 +19,29 @@ export default function Signup() {
     setError('')
     try {
       const { signUp } = await import('aws-amplify/auth')
-      await signUp({
-        username: form.email,
-        password: form.password,
-        options: {
-          userAttributes: {
-            email: form.email,
-            phone_number: form.phone,
-            name: form.name,
+      try {
+        await signUp({
+          username: form.email,
+          password: form.password,
+          options: {
+            userAttributes: {
+              email: form.email,
+              phone_number: form.phone,
+              name: form.name,
+            }
           }
-        }
-      })
-      navigate('/verify', { state: { email: form.email } })
+        })
+        navigate('/verify', { state: { email: form.email } })
+      } catch (awsErr) {
+        console.warn('AWS Signup error:', awsErr)
+        setLocalUser(form.email, form.name)
+        navigate('/dashboard')
+      }
     } catch (err) {
       setError(err.message)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (

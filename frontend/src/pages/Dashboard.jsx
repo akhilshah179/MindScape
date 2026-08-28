@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getCurrentUser, signOut, fetchUserAttributes } from 'aws-amplify/auth'
+import { signOut } from 'aws-amplify/auth'
 import { list, uploadData, getUrl } from 'aws-amplify/storage'
+import { getAuthUser, clearLocalUser } from '../utils/auth'
 import UploadButton from '../components/UploadButton'
 import FileList from '../components/FileList'
 
@@ -214,14 +215,12 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const currentUser = await getCurrentUser()
-        const attrs = await fetchUserAttributes()
-        const userId = currentUser?.userId || currentUser?.username
+        const u = await getAuthUser()
         setUser({
-          userId,
-          name: attrs.name || attrs.email?.split('@')[0] || 'User',
-          email: attrs.email || '',
-          initial: (attrs.name || attrs.email || 'U')[0].toUpperCase(),
+          userId: u.userId,
+          name: u.name,
+          email: u.email,
+          initial: (u.name || u.email || 'U')[0].toUpperCase(),
         })
         tickStreak()   // tick streak on every login
       } catch { navigate('/login') }
@@ -266,7 +265,11 @@ export default function Dashboard() {
     setPdfCounts(counts)
   }
 
-  const handleLogout = async () => { try { await signOut(); navigate('/login') } catch { addToast('Logout failed.', 'error') } }
+  const handleLogout = async () => {
+    try { await signOut() } catch {}
+    clearLocalUser()
+    navigate('/login')
+  }
   const handleAddSubject = (s) => { setCustomSubjects(prev => [...(prev || []), s]); setPdfCounts(prev => ({ ...prev, [s.name]: 0 })); addToast(`"${s.name}" added!`, 'success') }
   const handleDeleteSubject = (name) => { setCustomSubjects(prev => (prev || []).filter(s => s.name !== name)); setPdfCounts(prev => { const n = { ...prev }; delete n[name]; return n }); addToast(`"${name}" removed.`, 'info') }
   const handleUploadComplete = (subjectName) => { setRefreshMap(prev => ({ ...prev, [subjectName]: (prev[subjectName] || 0) + 1 })); setPdfCounts(prev => ({ ...prev, [subjectName]: (prev[subjectName] || 0) + 1 })); addToast('PDF uploaded!', 'success') }

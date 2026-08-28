@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { getCurrentUser, fetchUserAttributes } from 'aws-amplify/auth'
+import { getAuthUser } from '../../utils/auth'
 import CodingSidebar from '../../components/coding/CodingSidebar'
 
 export default function CodingArena() {
@@ -12,12 +12,11 @@ export default function CodingArena() {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const currentUser = await getCurrentUser()
-        const attrs = await fetchUserAttributes()
+        const u = await getAuthUser()
         setUser({
-          userId: currentUser?.userId || currentUser?.username,
-          name: attrs.name || attrs.email?.split('@')[0] || 'User',
-          email: attrs.email || '',
+          userId: u.userId,
+          name: u.name,
+          email: u.email,
         })
       } catch (err) {
         console.error('Failed to load user:', err)

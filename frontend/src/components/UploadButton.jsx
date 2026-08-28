@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { uploadData } from 'aws-amplify/storage'
-import { getCurrentUser } from 'aws-amplify/auth'
+import { getAuthUser } from '../utils/auth'
 
 export default function UploadButton({ subjectName, onUploadComplete }) {
   const [uploading, setUploading] = useState(false)
@@ -18,7 +18,7 @@ export default function UploadButton({ subjectName, onUploadComplete }) {
     }
     try {
       setUploading(true)
-      const user = await getCurrentUser()
+      const user = await getAuthUser()
       const path = `private/${user.userId}/${subjectName}/${file.name}`
       await uploadData({
         path,

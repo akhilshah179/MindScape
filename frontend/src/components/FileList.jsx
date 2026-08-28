@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { list, getUrl, remove } from 'aws-amplify/storage'
-import { getCurrentUser } from 'aws-amplify/auth'
+import { getAuthUser } from '../utils/auth'
 import { extractTextFromPDF } from '../utils/pdfTextExtractor'
 import { summarizeText } from '../utils/summarize'
 import { generateQuiz } from '../utils/Quizgenerator'
@@ -100,7 +100,7 @@ export default function FileList({ subjectName, refreshTrigger }) {
   const fetchFiles = async () => {
     try {
       setLoading(true)
-      const user = await getCurrentUser()
+      const user = await getAuthUser()
       const prefix = `private/${user.userId}/${subjectName}/`
       const result = await list({ path: prefix })
       setFiles(result.items.filter(item => item.path !== prefix && item.size > 0))

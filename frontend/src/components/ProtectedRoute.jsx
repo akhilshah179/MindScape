@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import { getCurrentUser } from 'aws-amplify/auth'
+import { getAuthUser } from '../utils/auth'
 
 export default function ProtectedRoute({ children }) {
     const [status, setStatus] = useState('checking')
 
     useEffect(() => {
-        getCurrentUser()
+        getAuthUser()
             .then(() => setStatus('auth'))
             .catch(() => setStatus('unauth'))
     }, [])
