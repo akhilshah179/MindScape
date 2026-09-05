@@ -82,18 +82,18 @@ export function useSessionTimer(subjectName) {
 
 // ── Quiz scores ───────────────────────────────────────────────────────────────
 export function saveQuizScore({ subjectName, fileName, score, total, questions, answers }) {
-    const wrongTopics = questions
+    const wrongTopics = (questions || [])
         .filter((_, i) => !answers[i]?.correct)
-        .map(q => q.question.slice(0, 80))               // store first 80 chars of wrong Qs
+        .map(q => q.question?.slice(0, 80) || '')               // store first 80 chars of wrong Qs
 
     const entry = {
         id: Date.now(),
         date: today(),
-        subjectName,
-        fileName,
-        score,
-        total,
-        pct: Math.round((score / total) * 100),
+        subjectName: subjectName || 'General',
+        fileName: fileName || 'document.pdf',
+        score: score || 0,
+        total: total || 5,
+        pct: Math.round(((score || 0) / (total || 5)) * 100),
         wrongTopics,
     }
 
@@ -104,27 +104,51 @@ export function saveQuizScore({ subjectName, fileName, score, total, questions, 
     return entry
 }
 
-export function useQuizScores() {
+export function useQuizScores(userId = null) {
     const [scores, setScores] = useState(() => load(KEYS.scores, []))
+    const [isLoading, setIsLoading] = useState(false)
 
-    const refresh = useCallback(() => setScores(load(KEYS.scores, [])), [])
+    const refresh = useCallback(async () => {
+        const local = load(KEYS.scores, [])
+        setScores(local)
+
+        // Asynchronously synchronize with backend database
+        try {
+            const { getUserQuizScores } = await import('../services/fileApi')
+            const dbScores = await getUserQuizScores(userId)
+            if (Array.isArray(dbScores) && dbScores.length > 0) {
+                // Merge unique scores by timestamp / id
+                const merged = [...dbScores]
+                for (const l of local) {
+                    if (!merged.some(m => m.id === l.id || (m.timestamp && l.timestamp && m.timestamp === l.timestamp))) {
+                        merged.push(l)
+                    }
+                }
+                merged.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0))
+                save(KEYS.scores, merged)
+                setScores(merged)
+            }
+        } catch (_) {}
+    }, [userId])
 
     useEffect(() => {
+        refresh()
         window.addEventListener('studymate_scores_updated', refresh)
         return () => window.removeEventListener('studymate_scores_updated', refresh)
     }, [refresh])
 
     // Per-subject aggregates
     const bySubject = scores.reduce((acc, s) => {
-        if (!acc[s.subjectName]) acc[s.subjectName] = []
-        acc[s.subjectName].push(s)
+        const subj = s.subjectName || 'General'
+        if (!acc[subj]) acc[subj] = []
+        acc[subj].push(s)
         return acc
     }, {})
 
     // Weak topics = questions missed >= 1 time
     const weakTopics = Object.entries(
-        scores.flatMap(s => s.wrongTopics).reduce((acc, t) => {
-            acc[t] = (acc[t] || 0) + 1
+        scores.flatMap(s => s.wrongTopics || []).reduce((acc, t) => {
+            if (t) acc[t] = (acc[t] || 0) + 1
             return acc
         }, {})
     )
@@ -133,7 +157,7 @@ export function useQuizScores() {
         .slice(0, 8)
         .map(([topic, count]) => ({ topic, count }))
 
-    return { scores, bySubject, weakTopics, refresh }
+    return { scores, bySubject, weakTopics, refresh, isLoading }
 }
 
 // ── Sessions analytics ────────────────────────────────────────────────────────

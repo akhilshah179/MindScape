@@ -3,6 +3,15 @@ import { PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb'
 
 const TABLE_PREFIX = 'studymate'
 
+function getRequestUserId(req) {
+    return req.headers['x-user-id'] || req.params?.userId || req.body?.userId || req.query?.userId || null
+}
+
+function normalizeMemoryKey(key) {
+    if (!key) return ''
+    return String(key).trim().toLowerCase().replace(/\s+/g, '_')
+}
+
 /**
  * GET /api/memory/:userId
  * Retrieve all AI memory items for a user
@@ -10,6 +19,14 @@ const TABLE_PREFIX = 'studymate'
 export const getMemory = async (req, res) => {
     try {
         const { userId } = req.params
+        const authUserId = getRequestUserId(req)
+
+        if (!authUserId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (authUserId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You cannot access another user\'s memory.' })
+        }
 
         const data = await dynamoDb.send(new QueryCommand({
             TableName: `${TABLE_PREFIX}_ai_memory`,
@@ -32,24 +49,36 @@ export const getMemory = async (req, res) => {
 export const setMemory = async (req, res) => {
     try {
         const { userId } = req.params
+        const authUserId = getRequestUserId(req)
         const { key, value } = req.body
+
+        if (!authUserId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (authUserId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You cannot modify another user\'s memory.' })
+        }
 
         if (!key || !value) {
             return res.status(400).json({ error: 'Key and value are required' })
         }
 
+        const memoryKey = normalizeMemoryKey(key)
+        const now = new Date().toISOString()
+        const memoryItem = {
+            userId,
+            memoryKey,
+            value: String(value).trim(),
+            source: 'manual',
+            updatedAt: now
+        }
+
         await dynamoDb.send(new PutCommand({
             TableName: `${TABLE_PREFIX}_ai_memory`,
-            Item: {
-                userId,
-                memoryKey: key.trim().toLowerCase().replace(/\s+/g, '_'),
-                value: value.trim(),
-                source: 'manual',
-                updatedAt: new Date().toISOString()
-            }
+            Item: memoryItem
         }))
 
-        res.json({ success: true })
+        res.json({ success: true, item: memoryItem })
     } catch (err) {
         console.error('Set memory error:', err)
         res.status(500).json({ error: 'Failed to save memory' })
@@ -63,13 +92,33 @@ export const setMemory = async (req, res) => {
 export const deleteMemory = async (req, res) => {
     try {
         const { userId, key } = req.params
+        const authUserId = getRequestUserId(req)
+
+        if (!authUserId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (authUserId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You cannot delete another user\'s memory.' })
+        }
+
+        const normalizedKey = normalizeMemoryKey(key)
 
         await dynamoDb.send(new DeleteCommand({
             TableName: `${TABLE_PREFIX}_ai_memory`,
-            Key: { userId, memoryKey: key }
+            Key: { userId, memoryKey: normalizedKey }
         }))
 
-        res.json({ success: true })
+        // Also clean raw key if different
+        if (normalizedKey !== key) {
+            try {
+                await dynamoDb.send(new DeleteCommand({
+                    TableName: `${TABLE_PREFIX}_ai_memory`,
+                    Key: { userId, memoryKey: key }
+                }))
+            } catch (_) {}
+        }
+
+        res.json({ success: true, deletedKey: normalizedKey })
     } catch (err) {
         console.error('Delete memory error:', err)
         res.status(500).json({ error: 'Failed to delete memory' })
@@ -83,6 +132,14 @@ export const deleteMemory = async (req, res) => {
 export const clearAllMemory = async (req, res) => {
     try {
         const { userId } = req.params
+        const authUserId = getRequestUserId(req)
+
+        if (!authUserId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (authUserId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You cannot clear another user\'s memory.' })
+        }
 
         if (req.query.all !== 'true') {
             return res.status(400).json({ error: 'Pass ?all=true to confirm clearing all memory' })
@@ -112,3 +169,4 @@ export const clearAllMemory = async (req, res) => {
         res.status(500).json({ error: 'Failed to clear memory' })
     }
 }
+

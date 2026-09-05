@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { list, getUrl, remove } from 'aws-amplify/storage'
-import { getAuthUser } from '../utils/auth'
+import { getFiles, deleteFile, fetchFileBlob, getFileContentUrl, getFileSummary, generateFileSummary, getFileQuiz, generateFileQuiz } from '../services/fileApi'
 import { extractTextFromPDF } from '../utils/pdfTextExtractor'
-import { summarizeText } from '../utils/summarize'
-import { generateQuiz } from '../utils/Quizgenerator'
 import QuizModal from './QuizModal'
 import PDFViewer from './PDFViewer'
 
@@ -28,44 +25,90 @@ function exportSummaryAsPDF(summary, fileName, subjectName) {
 }
 
 // ─── Summary Modal ────────────────────────────────────────────────────────────
-function SummaryModal({ summary, fileName, subjectName, onClose }) {
-  const formatText = (text) => text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/\n/g, '<br/>')
+function SummaryModal({ summary, fileName, subjectName, onRegenerate, isRegenerating, onClose }) {
+  const formatText = (text) => {
+    if (!text) return ''
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/^### (.*$)/gim, '<h3 class="text-base font-bold text-slate-800 dark:text-white mt-4 mb-2">$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2 class="text-lg font-bold text-violet-700 dark:text-violet-400 mt-5 mb-2">$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1 class="text-xl font-bold text-slate-900 dark:text-white mt-6 mb-3">$1</h1>')
+      .replace(/^\- (.*$)/gim, '<li class="ml-4 list-disc my-1">$1</li>')
+      .replace(/\n/g, '<br/>')
+  }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl border border-slate-100 animate-fade-in relative overflow-hidden">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-fade-in">
+      <div className="bg-white dark:bg-[#0e0e15] rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl border border-slate-100 dark:border-white/10 relative overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-white z-10">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-white/10 bg-white dark:bg-[#0e0e15] z-10">
           <div>
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              <span className="text-emerald-500">✨</span> AI Summary
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <span className="text-emerald-500">✨</span> AI Study Summary
             </h2>
-            <p className="text-sm text-slate-500 mt-1">{fileName}</p>
+            <p className="text-xs text-slate-500 dark:text-white/40 mt-1 truncate max-w-sm">{fileName}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => exportSummaryAsPDF(summary, fileName, subjectName)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl text-xs font-semibold transition-colors">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 8l-3-3m3 3l3-3" /></svg>
+            {onRegenerate && (
+              <button
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+                title="Regenerate summary with AI"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/20 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                {isRegenerating ? (
+                  <>
+                    <div className="w-3 h-3 border border-violet-500 border-t-transparent rounded-full animate-spin shrink-0" />
+                    <span>Regenerating...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>🔄</span>
+                    <span className="hidden sm:inline">Regenerate</span>
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              onClick={() => exportSummaryAsPDF(summary, fileName, subjectName)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 rounded-xl text-xs font-semibold transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1M12 12V4m0 8l-3-3m3 3l3-3" />
+              </svg>
               Export PDF
             </button>
-            <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition-colors">✕</button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/20 text-slate-500 dark:text-white/60 flex items-center justify-center transition-colors"
+            >
+              ✕
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 scroll-smooth bg-slate-50">
-          <div className="prose prose-sm max-w-none text-slate-700 leading-relaxed bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
-            dangerouslySetInnerHTML={{ __html: formatText(summary) }} />
+        <div className="flex-1 overflow-y-auto p-6 scroll-smooth bg-slate-50 dark:bg-[#06060a]">
+          <div
+            className="prose prose-sm max-w-none text-slate-700 dark:text-slate-200 leading-relaxed bg-white dark:bg-[#0e0e15] p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-white/10"
+            dangerouslySetInnerHTML={{ __html: formatText(summary) }}
+          />
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-between items-center z-10">
-          <p className="text-xs text-slate-400 font-medium tracking-wide flex items-center gap-1">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            Generated by StudyMate AI
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-white/10 bg-white dark:bg-[#0e0e15] flex justify-between items-center z-10">
+          <p className="text-xs text-slate-400 dark:text-white/40 font-medium tracking-wide flex items-center gap-1">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Persisted AI Study Guide
           </p>
-          <button onClick={onClose} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold rounded-xl shadow-sm transition-colors">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 bg-slate-800 dark:bg-white/10 hover:bg-slate-900 dark:hover:bg-white/20 text-white text-sm font-bold rounded-xl shadow-sm transition-colors"
+          >
             Close
           </button>
         </div>
@@ -77,15 +120,18 @@ function SummaryModal({ summary, fileName, subjectName, onClose }) {
 export default function FileList({ subjectName, refreshTrigger }) {
   const [files, setFiles] = useState([])
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(null)
   const [summaries, setSummaries] = useState({})
-  const [loadingSummary, setLoadingSummary] = useState({})
+  const [loadingSummary, setLoadingSummary] = useState({}) // { [fileId]: string status message }
   const [errors, setErrors] = useState({})
   const [loadingQuiz, setLoadingQuiz] = useState({})
   const [quizData, setQuizData] = useState(null)
   const [quizFileName, setQuizFileName] = useState('')
+  const [quizFileId, setQuizFileId] = useState(null)
   const [pdfTexts, setPdfTexts] = useState({})
   const [viewerFile, setViewerFile] = useState(null)
-  const [activeSummary, setActiveSummary] = useState(null) // { content, fileName }
+  const [activeSummary, setActiveSummary] = useState(null) // { content, fileName, file }
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const [listening, setListening] = useState({})
   const [sharing, setSharing] = useState({})
   const [shareMenuOpen, setShareMenuOpen] = useState({})
@@ -100,66 +146,101 @@ export default function FileList({ subjectName, refreshTrigger }) {
   const fetchFiles = async () => {
     try {
       setLoading(true)
-      const user = await getAuthUser()
-      const prefix = `private/${user.userId}/${subjectName}/`
-      const result = await list({ path: prefix })
-      setFiles(result.items.filter(item => item.path !== prefix && item.size > 0))
-    } catch (err) { console.error('Failed to list files:', err) }
-    finally { setLoading(false) }
+      setFetchError(null)
+      const list = await getFiles(subjectName)
+      setFiles(list || [])
+    } catch (err) {
+      console.error('Failed to list files:', err)
+      setFetchError('Failed to load files from server.')
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleDelete = async (filePath) => {
-    try { await remove({ path: filePath }); setFiles(prev => prev.filter(f => f.path !== filePath)) }
-    catch { /* silent */ }
+  const handleDelete = async (fileId) => {
+    try {
+      await deleteFile(fileId)
+      setFiles(prev => prev.filter(f => f.fileId !== fileId))
+      setSummaries(prev => {
+        const next = { ...prev }
+        delete next[fileId]
+        return next
+      })
+      showToast('File removed successfully.', 'success')
+    } catch (err) {
+      console.error('Failed to delete file:', err)
+      showToast('Failed to delete file.', 'error')
+    }
   }
 
-  const getPDFText = async (file, fileName) => {
-    if (pdfTexts[file.path]) return pdfTexts[file.path]
-    const { url } = await getUrl({ path: file.path, options: { expiresIn: 3600 } })
-    const response = await fetch(url.href)
-    if (!response.ok) throw new Error('Failed to download PDF.')
-    const blob = await response.blob()
+  const getPDFText = async (file) => {
+    if (pdfTexts[file.fileId]) return pdfTexts[file.fileId]
+    const blob = await fetchFileBlob(file.fileId)
+    const fileName = file.originalName || file.name || 'document.pdf'
     const text = await extractTextFromPDF(new File([blob], fileName, { type: 'application/pdf' }))
-    setPdfTexts(prev => ({ ...prev, [file.path]: text }))
+    setPdfTexts(prev => ({ ...prev, [file.fileId]: text }))
     return text
   }
 
-  const handleSummarize = async (file, fileName) => {
-    // If we've already generated it, just pop open the modal
-    if (summaries[file.path]) {
-      setActiveSummary({ content: summaries[file.path], fileName })
-      return
+  const handleSummarize = async (file, fileName, forceRegenerate = false) => {
+    setErrors(prev => ({ ...prev, [file.fileId]: null }))
+
+    if (forceRegenerate) {
+      setIsRegenerating(true)
+    } else {
+      // 1. Check if already in memory
+      if (summaries[file.fileId]) {
+        setActiveSummary({ content: summaries[file.fileId], fileName, file })
+        return
+      }
+
+      // 2. Check if saved summary already exists in persistent database
+      setLoadingSummary(prev => ({ ...prev, [file.fileId]: 'Checking saved summary...' }))
+      try {
+        const existing = await getFileSummary(file.fileId)
+        if (existing && existing.summary) {
+          setSummaries(prev => ({ ...prev, [file.fileId]: existing.summary }))
+          setActiveSummary({ content: existing.summary, fileName, file })
+          setLoadingSummary(prev => ({ ...prev, [file.fileId]: false }))
+          return
+        }
+      } catch (err) {
+        console.warn('Failed to fetch existing summary:', err)
+      }
     }
 
-    setErrors(prev => ({ ...prev, [file.path]: null }))
-    setLoadingSummary(prev => ({ ...prev, [file.path]: true }))
+    // 3. If no existing summary (or forceRegenerate is true), extract text & generate via backend
     try {
-      const text = await getPDFText(file, fileName)
-      const result = await summarizeText(text)
-      setSummaries(prev => ({ ...prev, [file.path]: result }))
-      setActiveSummary({ content: result, fileName })
+      setLoadingSummary(prev => ({ ...prev, [file.fileId]: 'Extracting document text...' }))
+      const text = await getPDFText(file)
+
+      setLoadingSummary(prev => ({ ...prev, [file.fileId]: 'Generating structured AI summary...' }))
+      const result = await generateFileSummary(file.fileId, text, forceRegenerate)
+
+      const summaryText = result?.summary?.summary || result?.summary || ''
+      setSummaries(prev => ({ ...prev, [file.fileId]: summaryText }))
+      setActiveSummary({ content: summaryText, fileName, file })
+      showToast(result.cached ? 'Loaded saved summary.' : 'AI summary generated & saved permanently!', 'success')
     } catch (err) {
-      setErrors(prev => ({ ...prev, [file.path]: err.message || 'Failed to summarize PDF' }))
+      console.error('Summary Error:', err)
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to generate summary'
+      setErrors(prev => ({ ...prev, [file.fileId]: errorMsg }))
+      showToast(errorMsg, 'error')
     } finally {
-      setLoadingSummary(prev => ({ ...prev, [file.path]: false }))
+      setLoadingSummary(prev => ({ ...prev, [file.fileId]: false }))
+      setIsRegenerating(false)
     }
   }
 
   const showToast = (message, type = 'success') => {
     setLocalToast({ message, type })
-    setTimeout(() => setLocalToast(null), 3000)
+    setTimeout(() => setLocalToast(null), 3500)
   }
 
   const handleShare = async (file, action) => {
-    setSharing(prev => ({ ...prev, [file.path]: action }))
+    setSharing(prev => ({ ...prev, [file.fileId]: action }))
     try {
-      // Generate a secure URL valid for 1 hour (3600 seconds)
-      const { url } = await getUrl({
-        path: file.path,
-        options: { expiresIn: 3600 }
-      })
-      const link = url.href
-
+      const link = await getFileContentUrl(file.fileId)
       if (action === 'copy') {
         await navigator.clipboard.writeText(link)
         showToast('Secure link copied to clipboard!', 'success')
@@ -170,30 +251,57 @@ export default function FileList({ subjectName, refreshTrigger }) {
       console.error('Failed to generate sharing link:', error)
       showToast('Failed to generate sharing link.', 'error')
     } finally {
-      setSharing(prev => ({ ...prev, [file.path]: null }))
+      setSharing(prev => ({ ...prev, [file.fileId]: null }))
     }
   }
 
-  const handleGenerateQuiz = async (file, fileName) => {
-    setErrors(prev => ({ ...prev, [file.path]: null }))
-    setLoadingQuiz(prev => ({ ...prev, [file.path]: true }))
+  const handleGenerateQuiz = async (file, fileName, forceRegenerate = false) => {
+    setErrors(prev => ({ ...prev, [file.fileId]: null }))
+    setLoadingQuiz(prev => ({ ...prev, [file.fileId]: true }))
     try {
-      const text = await getPDFText(file, fileName)
-      const questions = await generateQuiz(text)
+      // 1. Check if quiz already exists in backend database
+      if (!forceRegenerate) {
+        try {
+          const cachedQuiz = await getFileQuiz(file.fileId)
+          if (cachedQuiz && Array.isArray(cachedQuiz.questions) && cachedQuiz.questions.length > 0) {
+            setQuizFileName(fileName)
+            setQuizFileId(file.fileId)
+            setQuizData(cachedQuiz.questions)
+            showToast('Loaded saved quiz.', 'success')
+            setLoadingQuiz(prev => ({ ...prev, [file.fileId]: false }))
+            return
+          }
+        } catch (_) {}
+      }
+
+      // 2. Extract text and generate quiz via backend AI service
+      const text = await getPDFText(file)
+      const result = await generateFileQuiz(file.fileId, text, forceRegenerate)
+      const questions = result?.quiz?.questions || result?.questions || []
+
+      if (!questions.length) {
+        throw new Error('Failed to generate valid quiz questions.')
+      }
+
       setQuizFileName(fileName)
+      setQuizFileId(file.fileId)
       setQuizData(questions)
+      showToast(result.cached ? 'Loaded saved quiz.' : 'AI quiz generated & saved permanently!', 'success')
     } catch (err) {
-      setErrors(prev => ({ ...prev, [file.path]: err.message || 'Failed to generate quiz' }))
+      console.error('Quiz Generation Error:', err)
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to generate quiz'
+      setErrors(prev => ({ ...prev, [file.fileId]: errorMsg }))
+      showToast(errorMsg, 'error')
     } finally {
-      setLoadingQuiz(prev => ({ ...prev, [file.path]: false }))
+      setLoadingQuiz(prev => ({ ...prev, [file.fileId]: false }))
     }
   }
 
   const toggleVoice = (file, fileName) => {
     if (!voiceSupported) { alert('Voice input not supported in this browser.'); return }
-    if (listening[file.path]) {
-      recogRefs.current[file.path]?.stop()
-      setListening(prev => ({ ...prev, [file.path]: false }))
+    if (listening[file.fileId]) {
+      recogRefs.current[file.fileId]?.stop()
+      setListening(prev => ({ ...prev, [file.fileId]: false }))
       return
     }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -201,13 +309,13 @@ export default function FileList({ subjectName, refreshTrigger }) {
     r.lang = 'en-US'
     r.interimResults = false
     r.onresult = () => {
-      setListening(prev => ({ ...prev, [file.path]: false }))
-      handleSummarize(file, fileName)   // trigger summary on voice
+      setListening(prev => ({ ...prev, [file.fileId]: false }))
+      handleSummarize(file, fileName)
     }
-    r.onerror = r.onend = () => setListening(prev => ({ ...prev, [file.path]: false }))
+    r.onerror = r.onend = () => setListening(prev => ({ ...prev, [file.fileId]: false }))
     r.start()
-    recogRefs.current[file.path] = r
-    setListening(prev => ({ ...prev, [file.path]: true }))
+    recogRefs.current[file.fileId] = r
+    setListening(prev => ({ ...prev, [file.fileId]: true }))
   }
 
   if (loading) return (
@@ -217,13 +325,17 @@ export default function FileList({ subjectName, refreshTrigger }) {
     </div>
   )
 
+  if (fetchError) return (
+    <div className="py-3 text-center text-red-400 text-xs">{fetchError}</div>
+  )
+
   if (files.length === 0) return (
     <div className="py-4 text-center text-slate-400 text-xs italic">No PDFs uploaded yet.</div>
   )
 
   return (
     <>
-      {/* FileList Local Toast for Sharing */}
+      {/* FileList Local Toast for Sharing & Notifications */}
       {localToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 px-5 py-3 rounded-full shadow-lg border animate-fade-in
           bg-slate-800 border-slate-700 text-white min-w-[max-content] justify-center transition-all duration-300">
@@ -233,29 +345,36 @@ export default function FileList({ subjectName, refreshTrigger }) {
       )}
 
       {activeSummary && (
-        <SummaryModal summary={activeSummary.content} fileName={activeSummary.fileName}
-          subjectName={subjectName} onClose={() => setActiveSummary(null)} />
+        <SummaryModal
+          summary={activeSummary.content}
+          fileName={activeSummary.fileName}
+          subjectName={subjectName}
+          isRegenerating={isRegenerating}
+          onRegenerate={() => handleSummarize(activeSummary.file, activeSummary.fileName, true)}
+          onClose={() => setActiveSummary(null)}
+        />
       )}
       {quizData && (
         <QuizModal questions={quizData} fileName={quizFileName}
-          subjectName={subjectName} onClose={() => setQuizData(null)} />
+          subjectName={subjectName} fileId={quizFileId} onClose={() => { setQuizData(null); setQuizFileId(null) }} />
       )}
       {viewerFile && (
-        <PDFViewer filePath={viewerFile.path} fileName={viewerFile.name} subjectName={subjectName}
+        <PDFViewer fileId={viewerFile.fileId} fileName={viewerFile.name} subjectName={subjectName}
           onClose={() => setViewerFile(null)} />
       )}
 
       <ul className="space-y-2 mt-1">
         {files.map((file) => {
-          const fileName = file.path.split('/').pop()
+          const fileName = file.originalName || file.name || 'document.pdf'
           const sizeKB = file.size ? `${(file.size / 1024).toFixed(1)} KB` : ''
-          const isLoadingSummary = loadingSummary[file.path]
-          const isLoadingQuiz = loadingQuiz[file.path]
+          const summaryStatus = loadingSummary[file.fileId]
+          const isLoadingSummary = Boolean(summaryStatus)
+          const isLoadingQuiz = loadingQuiz[file.fileId]
           const isBusy = isLoadingSummary || isLoadingQuiz
-          const isListening = listening[file.path]
+          const isListening = listening[file.fileId]
 
           return (
-            <li key={file.path}
+            <li key={file.fileId}
               className="bg-white dark:bg-[#06060a] rounded-2xl border border-slate-100 dark:border-white/10 shadow-sm overflow-hidden group">
 
               {/* File info */}
@@ -270,7 +389,7 @@ export default function FileList({ subjectName, refreshTrigger }) {
                   <p className="text-slate-700 dark:text-white text-xs font-semibold truncate">{fileName}</p>
                   {sizeKB && <p className="text-slate-400 text-[10px] mt-0.5">{sizeKB}</p>}
                 </div>
-                <button onClick={() => handleDelete(file.path)} disabled={isBusy}
+                <button onClick={() => handleDelete(file.fileId)} disabled={isBusy}
                   className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 dark:text-white/20
                     hover:text-red-500 dark:hover:text-red-400 text-[10px] font-medium px-2 py-1 rounded-lg
                     hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-0 shrink-0">
@@ -282,7 +401,7 @@ export default function FileList({ subjectName, refreshTrigger }) {
               <div className="flex items-center gap-2 px-4 pb-3 flex-wrap">
 
                 {/* View in-app */}
-                <button onClick={() => setViewerFile({ path: file.path, name: fileName })}
+                <button onClick={() => setViewerFile({ fileId: file.fileId, name: fileName })}
                   disabled={isBusy}
                   className="flex items-center gap-1.5 text-slate-600 dark:text-white/70 hover:text-slate-800 dark:hover:text-white text-[11px]
                     font-medium px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10
@@ -299,12 +418,20 @@ export default function FileList({ subjectName, refreshTrigger }) {
                   className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200 text-[11px]
                     font-medium px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20
                     transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                  {isLoadingSummary
-                    ? <><div className="w-2.5 h-2.5 border border-emerald-500 border-t-transparent rounded-full animate-spin" />Summarizing...</>
-                    : <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>Summary</>}
+                  {isLoadingSummary ? (
+                    <>
+                      <div className="w-2.5 h-2.5 border border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                      <span>{typeof summaryStatus === 'string' ? summaryStatus : 'Summarizing...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Summary
+                    </>
+                  )}
                 </button>
 
                 {/* Quiz */}
@@ -319,13 +446,14 @@ export default function FileList({ subjectName, refreshTrigger }) {
                         d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                     </svg>Quiz</>}
                 </button>
+
                 {/* Share Dropdown */}
                 <div className="relative">
-                  <button onClick={() => setShareMenuOpen(prev => ({ ...prev, [file.path]: !prev[file.path] }))} disabled={isBusy || sharing[file.path]}
+                  <button onClick={() => setShareMenuOpen(prev => ({ ...prev, [file.fileId]: !prev[file.fileId] }))} disabled={isBusy || sharing[file.fileId]}
                     className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 text-[11px]
                       font-medium px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20
                       transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                    {sharing[file.path]
+                    {sharing[file.fileId]
                       ? <><div className="w-2.5 h-2.5 border border-blue-500 border-t-transparent rounded-full animate-spin" />Link...</>
                       : <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
@@ -333,16 +461,16 @@ export default function FileList({ subjectName, refreshTrigger }) {
                   </button>
 
                   {/* Dropdown Menu */}
-                  {shareMenuOpen[file.path] && (
+                  {shareMenuOpen[file.fileId] && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setShareMenuOpen(prev => ({ ...prev, [file.path]: false }))} />
+                      <div className="fixed inset-0 z-10" onClick={() => setShareMenuOpen(prev => ({ ...prev, [file.fileId]: false }))} />
                       <div className="absolute top-full left-0 mt-1 w-36 bg-white dark:bg-[#06060a] rounded-xl shadow-lg border border-slate-100 dark:border-white/10 py-1.5 z-20">
-                        <button onClick={() => { handleShare(file, 'copy'); setShareMenuOpen(prev => ({ ...prev, [file.path]: false })) }}
+                        <button onClick={() => { handleShare(file, 'copy'); setShareMenuOpen(prev => ({ ...prev, [file.fileId]: false })) }}
                           className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-white/5 text-[11px] text-slate-700 dark:text-white/80 font-medium flex items-center gap-2 transition-colors">
                           <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                           Copy secure link
                         </button>
-                        <button onClick={() => { handleShare(file, 'open'); setShareMenuOpen(prev => ({ ...prev, [file.path]: false })) }}
+                        <button onClick={() => { handleShare(file, 'open'); setShareMenuOpen(prev => ({ ...prev, [file.fileId]: false })) }}
                           className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-white/5 text-[11px] text-slate-700 dark:text-white/80 font-medium flex items-center gap-2 transition-colors">
                           <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                           Open in browser
@@ -371,13 +499,11 @@ export default function FileList({ subjectName, refreshTrigger }) {
               </div>
 
               {/* Error */}
-              {errors[file.path] && (
-                <div className="mx-4 mb-3 text-[11px] text-red-600 bg-red-50 rounded-xl px-3 py-2 border border-red-100">
-                  {errors[file.path]}
+              {errors[file.fileId] && (
+                <div className="mx-4 mb-3 text-[11px] text-red-600 bg-red-50 dark:bg-red-500/10 rounded-xl px-3 py-2 border border-red-100 dark:border-red-500/20">
+                  {errors[file.fileId]}
                 </div>
               )}
-
-              {/* Summary output used to be here, but is now a Modal. */}
             </li>
           )
         })}

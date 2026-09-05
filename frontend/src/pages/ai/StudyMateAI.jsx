@@ -49,16 +49,19 @@ export default function StudyMateAI() {
     }
 
     // Handle PDF submission
-    const handlePDFSubmit = async (prompt, extractedText) => {
-        setPdfContext(extractedText)
-        // Create chat if needed, then send with context
+    const handlePDFSubmit = async (prompt, extractedText, fileId = null, fileName = null) => {
+        setPdfContext({ text: extractedText, fileId, fileName })
         let chatId = chatHook.activeChatId
         if (!chatId) {
-            chatId = await chatHook.createChat()
+            chatId = await chatHook.createChat({
+                title: fileName ? `PDF: ${fileName}` : 'PDF Chat',
+                fileId,
+                fileName
+            })
             if (!chatId) return
             await new Promise(r => setTimeout(r, 100))
         }
-        await chatHook.sendMessage(prompt, extractedText)
+        await chatHook.sendMessage(prompt, extractedText, fileId, fileName)
     }
 
     if (loading) {
@@ -88,7 +91,7 @@ export default function StudyMateAI() {
                     isSearching={chatHook.isSearching}
                     collapsed={sidebarCollapsed}
                     onToggle={() => setSidebarCollapsed(c => !c)}
-                    onCreateChat={chatHook.createChat}
+                    onCreateChat={chatHook.startNewChat}
                     onSelectChat={(id) => { chatHook.selectChat(id); setMobileNavOpen(false) }}
                     onRenameChat={chatHook.renameChat}
                     onDeleteChat={chatHook.deleteChat}
@@ -110,7 +113,7 @@ export default function StudyMateAI() {
                             searchQuery={chatHook.searchQuery}
                             isSearching={chatHook.isSearching}
                             collapsed={false}
-                            onCreateChat={chatHook.createChat}
+                            onCreateChat={chatHook.startNewChat}
                             onSelectChat={(id) => { chatHook.selectChat(id); setMobileNavOpen(false) }}
                             onRenameChat={chatHook.renameChat}
                             onDeleteChat={chatHook.deleteChat}

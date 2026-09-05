@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { saveQuizScore } from '../hooks/useStudyTracker'
+import { saveFileQuizScore } from '../services/fileApi'
 
-export default function QuizModal({ questions, fileName, subjectName, onClose }) {
+export default function QuizModal({ questions, fileName, subjectName, fileId, onClose }) {
   const [current, setCurrent] = useState(0)
   const [selected, setSelected] = useState(null)
   const [answers, setAnswers] = useState([])
@@ -31,14 +32,18 @@ export default function QuizModal({ questions, fileName, subjectName, onClose })
         const lastAnswer = { selected, correct: selected === question.answer }
         const finalAnswers = [...answers, lastAnswer]
         const finalScore = finalAnswers.filter(a => a.correct).length
-        saveQuizScore({
+        const payload = {
           subjectName,
           fileName,
           score: finalScore,
           total: totalQuestions,
           questions,
           answers: finalAnswers,
-        })
+        }
+        saveQuizScore(payload)
+        if (fileId) {
+          saveFileQuizScore(fileId, payload).catch(err => console.warn('Failed to save score to backend:', err))
+        }
         setSaved(true)
       }
     } else {

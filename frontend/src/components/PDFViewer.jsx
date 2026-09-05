@@ -1,21 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
-import { getUrl } from 'aws-amplify/storage'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { fetchFileBlob, getFileContentUrl } from '../services/fileApi'
 import { useNotes } from '../hooks/useNotes'
 import { extractTextFromPDF } from '../utils/pdfTextExtractor'
 import { groqChat, groqChatWithContext } from '../utils/groqClient'
 import { saveQuizScore } from '../hooks/useStudyTracker'
 
-export default function PDFViewer({ filePath, fileName, subjectName, onClose }) {
+export default function PDFViewer({ fileId, filePath, fileName, subjectName, onClose }) {
     const [pdfUrl, setPdfUrl] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
-    
-    // Extracted text
+    const [pdfBlob, setPdfBlob] = useState(null)
+    const activeBlobUrlRef = useRef(null)
+
+    // Extracted text & lazy extraction state
     const [pdfText, setPdfText] = useState('')
     const [isExtracting, setIsExtracting] = useState(false)
+    const [extractionError, setExtractionError] = useState(null)
 
-    // Notes
-    const { notes, addNote } = useNotes(filePath)
+    // Notes (keyed by fileId)
+    const targetFileKey = fileId || filePath || fileName
+    const { notes, addNote } = useNotes(targetFileKey)
     const [noteInput, setNoteInput] = useState('')
 
     // Active Tab in Sidebar
@@ -33,32 +37,61 @@ export default function PDFViewer({ filePath, fileName, subjectName, onClose }) 
     const [userAnswers, setUserAnswers] = useState({})
     const [quizScore, setQuizScore] = useState(null)
 
+    // Clean up Object URL
+    const revokeCurrentBlobUrl = useCallback(() => {
+        if (activeBlobUrlRef.current) {
+            URL.revokeObjectURL(activeBlobUrlRef.current)
+            activeBlobUrlRef.current = null
+        }
+    }, [])
+
+    // ── Load PDF without blocking UI ─────────────────────────────────────────────
     useEffect(() => {
-        let objectUrl = null
+        let isMounted = true
 
         const load = async () => {
             try {
                 setLoading(true)
-                const { url } = await getUrl({ path: filePath, options: { expiresIn: 3600 } })
-                const res = await fetch(url.href)
-                const blob = await res.blob()
-                objectUrl = URL.createObjectURL(blob)
-                setPdfUrl(objectUrl)
+                setError(null)
+                revokeCurrentBlobUrl()
 
-                // Extract text for AI
-                setIsExtracting(true)
-                try {
-                    const text = await extractTextFromPDF(new File([blob], fileName, { type: 'application/pdf' }))
-                    setPdfText(text)
-                } catch (err) {
-                    console.error('Text extraction failed:', err)
-                } finally {
-                    setIsExtracting(false)
+                let blob
+                if (fileId) {
+                    blob = await fetchFileBlob(fileId)
+                } else if (filePath) {
+                    const res = await fetch(filePath)
+                    if (!res.ok) throw new Error(`HTTP error ${res.status}`)
+                    blob = await res.blob()
+                } else {
+                    throw new Error('No file identifier provided')
                 }
 
+                if (!isMounted) return
+
+                const objectUrl = URL.createObjectURL(blob)
+                activeBlobUrlRef.current = objectUrl
+                setPdfBlob(blob)
+                setPdfUrl(objectUrl)
+                setLoading(false)
             } catch (err) {
-                setError('Could not load PDF: ' + err.message)
-            } finally {
+                console.error('PDF load failed:', err)
+                if (!isMounted) return
+
+                // Fallback: If blob fetch failed, try direct streaming content URL
+                if (fileId) {
+                    try {
+                        const directUrl = await getFileContentUrl(fileId)
+                        if (isMounted && directUrl) {
+                            setPdfUrl(directUrl)
+                            setLoading(false)
+                            return
+                        }
+                    } catch (fallbackErr) {
+                        console.error('Fallback stream failed:', fallbackErr)
+                    }
+                }
+
+                setError('Could not load PDF: ' + (err.response?.data?.error || err.message))
                 setLoading(false)
             }
         }
@@ -66,9 +99,46 @@ export default function PDFViewer({ filePath, fileName, subjectName, onClose }) 
         load()
 
         return () => {
-            if (objectUrl) URL.revokeObjectURL(objectUrl)
+            isMounted = false
+            revokeCurrentBlobUrl()
         }
-    }, [filePath, fileName])
+    }, [fileId, filePath, revokeCurrentBlobUrl])
+
+    // ── Lazy Text Extraction (On-Demand for Chat & Quiz) ──────────────────────────
+    const performExtraction = useCallback(async (blobToUse) => {
+        if (pdfText || isExtracting) return pdfText
+        setIsExtracting(true)
+        setExtractionError(null)
+
+        try {
+            let blob = blobToUse || pdfBlob
+            if (!blob && fileId) {
+                blob = await fetchFileBlob(fileId)
+                setPdfBlob(blob)
+            }
+            if (!blob) throw new Error('PDF data is not available for extraction.')
+
+            const text = await extractTextFromPDF(
+                new File([blob], fileName || 'document.pdf', { type: 'application/pdf' })
+            )
+            setPdfText(text)
+            return text
+        } catch (err) {
+            console.error('Lazy text extraction failed:', err)
+            const msg = err.message || 'Failed to extract text from document.'
+            setExtractionError(msg)
+            return null
+        } finally {
+            setIsExtracting(false)
+        }
+    }, [pdfText, isExtracting, pdfBlob, fileId, fileName])
+
+    // Trigger lazy extraction when user views AI Chat or Quiz tabs
+    useEffect(() => {
+        if ((activeTab === 'Chat' || activeTab === 'Quiz') && !pdfText && !isExtracting && !extractionError && pdfBlob) {
+            performExtraction(pdfBlob)
+        }
+    }, [activeTab, pdfText, isExtracting, extractionError, pdfBlob, performExtraction])
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -88,12 +158,17 @@ export default function PDFViewer({ filePath, fileName, subjectName, onClose }) 
         setIsChatting(true)
         
         try {
+            let text = pdfText
+            if (!text) {
+                text = await performExtraction()
+            }
+
             const updatedHistory = [
                 ...messages.slice(1).map(m => ({ role: m.role, content: m.content })),
                 { role: 'user', content: newMsg }
             ]
             const reply = await groqChatWithContext(
-                pdfText || 'No text could be extracted from this PDF.',
+                text || 'No text could be extracted from this PDF.',
                 updatedHistory
             )
             setMessages(prev => [...prev, { role: 'assistant', content: reply }])
@@ -105,10 +180,16 @@ export default function PDFViewer({ filePath, fileName, subjectName, onClose }) 
     }
 
     const generateQuiz = async () => {
-        if (!pdfText) {
-            alert('Wait for document to be extracted or document has no text.')
+        let text = pdfText
+        if (!text) {
+            text = await performExtraction()
+        }
+
+        if (!text) {
+            alert('Document text is not ready or could not be extracted.')
             return
         }
+
         setIsGeneratingQuiz(true)
         setQuiz(null)
         setUserAnswers({})
@@ -117,7 +198,7 @@ export default function PDFViewer({ filePath, fileName, subjectName, onClose }) 
             const prompt = `Based strictly on the following text, generate a JSON array of 3 multiple-choice questions. 
 Respond ONLY with raw JSON, nothing else. Format required: 
 [{"q":"Question?","options":["A","B","C","D"],"ans":"The exact text of the correct option"}]
-\nTEXT:\n${pdfText.slice(0, 3000)}`
+\nTEXT:\n${text.slice(0, 3000)}`
             const reply = await groqChat({
                 messages: [{ role: 'system', content: prompt }],
                 temperature: 0.3,
@@ -165,14 +246,36 @@ Respond ONLY with raw JSON, nothing else. Format required:
                     <div className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center shrink-0">📄</div>
                     <p className="text-white text-sm font-medium flex-1 truncate">{fileName}</p>
                     {pdfUrl && (
-                        <a href={pdfUrl} download={fileName} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg transition">Download</a>
+                        <a href={pdfUrl} download={fileName} target="_blank" rel="noopener noreferrer" className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-lg transition">Download</a>
                     )}
                     <button onClick={onClose} className="text-white/70 hover:text-white px-3 py-1 rounded hover:bg-slate-700 transition">✕ Close</button>
                 </div>
                 <div className="flex-1 overflow-hidden relative bg-slate-100">
-                    {loading && <div className="absolute inset-0 flex items-center justify-center text-slate-500 font-medium">Loading document...</div>}
-                    {error && <div className="absolute inset-0 flex items-center justify-center text-red-500 font-medium">{error}</div>}
-                    {pdfUrl && <iframe src={pdfUrl} title="PDF Viewer" className="w-full h-full border-none bg-white" />}
+                    {loading && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 gap-3">
+                            <div className="w-8 h-8 border-3 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-slate-600 text-sm font-medium">Loading document...</p>
+                        </div>
+                    )}
+                    {error && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-50 gap-3">
+                            <div className="w-12 h-12 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-xl">✕</div>
+                            <p className="text-slate-800 font-semibold text-sm">Failed to display PDF</p>
+                            <p className="text-red-500 text-xs max-w-md">{error}</p>
+                            {pdfUrl && (
+                                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="mt-2 text-xs bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-medium transition">
+                                    Open directly in browser tab
+                                </a>
+                            )}
+                        </div>
+                    )}
+                    {pdfUrl && !error && (
+                        <iframe
+                            src={pdfUrl}
+                            title="PDF Viewer"
+                            className="w-full h-full border-none bg-white"
+                        />
+                    )}
                 </div>
             </div>
 
@@ -193,7 +296,17 @@ Respond ONLY with raw JSON, nothing else. Format required:
                     {/* Chat Tab */}
                     {activeTab === 'Chat' && (
                         <div className="flex flex-col h-full bg-slate-50">
-                            {isExtracting && <div className="bg-amber-100 text-amber-800 text-xs text-center py-1.5 font-medium border-b border-amber-200 shadow-sm animate-pulse">Scanning document for AI...</div>}
+                            {isExtracting && (
+                                <div className="bg-amber-100 text-amber-800 text-xs text-center py-1.5 font-medium border-b border-amber-200 shadow-sm animate-pulse flex items-center justify-center gap-1.5">
+                                    <div className="w-2.5 h-2.5 border border-amber-800 border-t-transparent rounded-full animate-spin" />
+                                    <span>Scanning document for AI questions...</span>
+                                </div>
+                            )}
+                            {extractionError && (
+                                <div className="bg-red-50 text-red-600 text-xs text-center py-1.5 px-2 font-medium border-b border-red-200">
+                                    {extractionError}
+                                </div>
+                            )}
                             <div className="flex-1 overflow-y-auto p-4 space-y-4">
                                 {messages.map((m, i) => (
                                     <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -222,9 +335,9 @@ Respond ONLY with raw JSON, nothing else. Format required:
                             <div className="p-3 border-t border-slate-200 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                                 <form onSubmit={e => { e.preventDefault(); handleChat() }} className="flex gap-2">
                                     <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} 
-                                        placeholder="Ask about this document..." disabled={isExtracting || isChatting}
+                                        placeholder={isExtracting ? "Preparing document..." : "Ask about this document..."} disabled={isChatting}
                                         className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60 transition" />
-                                    <button type="submit" disabled={!chatInput.trim() || isChatting || isExtracting}
+                                    <button type="submit" disabled={!chatInput.trim() || isChatting}
                                         className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-sm disabled:opacity-50 transition flex items-center justify-center">
                                         <svg className="w-4 h-4 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
                                     </button>
@@ -236,6 +349,11 @@ Respond ONLY with raw JSON, nothing else. Format required:
                     {/* Quiz Tab */}
                     {activeTab === 'Quiz' && (
                         <div className="h-full overflow-y-auto bg-slate-50 flex flex-col p-5">
+                            {isExtracting && (
+                                <div className="bg-amber-100 text-amber-800 text-xs text-center py-1.5 px-2 rounded-xl font-medium mb-3 border border-amber-200 animate-pulse">
+                                    Preparing document text for quiz generation...
+                                </div>
+                            )}
                             {!quiz && !isGeneratingQuiz && (
                                 <div className="flex flex-col items-center justify-center flex-1 text-center bg-white rounded-2xl p-6 border border-slate-100 shadow-sm animate-fade-in my-auto h-fit">
                                     <div className="w-16 h-16 bg-violet-100 rounded-full flex items-center justify-center text-3xl mb-4 shadow-inner">🧠</div>

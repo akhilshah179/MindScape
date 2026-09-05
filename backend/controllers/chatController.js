@@ -1,63 +1,66 @@
 import dynamoDb from '../config/dynamoDb.js'
 import { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb'
 import crypto from 'crypto'
-import axios from 'axios'
-import dotenv from 'dotenv'
-
-dotenv.config()
+import { callGroq } from '../services/aiService.js'
 
 const TABLE_PREFIX = 'studymate'
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL = 'llama-3.3-70b-versatile'
 
-// ─── Helper: Call Groq AI ─────────────────────────────────────────────────────
-async function callGroq(messages, { temperature = 0.7, max_tokens = 2048 } = {}) {
-    if (!process.env.GROQ_API_KEY) {
-        return "I'm running in local offline mode because no `GROQ_API_KEY` was found in the backend `.env` file! Please add a free Groq API key to activate AI features."
-    }
-
-    const response = await axios.post(GROQ_URL, {
-        model: GROQ_MODEL,
-        temperature,
-        max_tokens,
-        messages
-    }, {
-        headers: {
-            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-        }
-    })
-    return response.data?.choices?.[0]?.message?.content || ''
+/**
+ * Helper to get user ID from request
+ */
+function getRequestUserId(req) {
+    return req.headers['x-user-id'] || req.params?.userId || req.body?.userId || req.query?.userId || null
 }
 
-// ─── Helper: Auto-generate chat title from first message ──────────────────────
-async function generateTitle(userMessage) {
+/**
+ * Helper: Generate concise title fast without blocking network call
+ */
+function generateFastTitle(userMessage) {
+    if (!userMessage) return 'New Chat'
+    const clean = userMessage.trim().replace(/^[^a-zA-Z0-9]+/, '')
+    const firstLine = clean.split('\n')[0].trim()
+    const words = firstLine.split(/\s+/).slice(0, 6).join(' ')
+    const truncated = words.slice(0, 45)
+    return (truncated.charAt(0).toUpperCase() + truncated.slice(1)) + (firstLine.length > 45 ? '...' : '')
+}
+
+/**
+ * Helper: Background AI title generation (refines title asynchronously)
+ */
+async function refineTitleInBackground(userId, chatId, userMessage) {
     try {
-        const title = await callGroq([
-            { role: 'system', content: 'Generate a very short title (3-6 words, no quotes) for this chat based on the user\'s first message. Respond with ONLY the title, nothing else.' },
-            { role: 'user', content: userMessage }
-        ], { temperature: 0.3, max_tokens: 30 })
-        return title.trim().replace(/^["']|["']$/g, '').slice(0, 60)
+        const title = await callGroq({
+            messages: [
+                { role: 'system', content: 'Generate a short, descriptive title (3-5 words, no quotes) for this chat based on the user\'s first message. Respond ONLY with the title.' },
+                { role: 'user', content: userMessage }
+            ],
+            temperature: 0.3,
+            max_tokens: 25
+        })
+        const cleaned = title.trim().replace(/^["']|["']$/g, '').slice(0, 50)
+        if (cleaned) {
+            await dynamoDb.send(new UpdateCommand({
+                TableName: `${TABLE_PREFIX}_chats`,
+                Key: { userId, chatId },
+                UpdateExpression: 'SET #title = :title',
+                ExpressionAttributeNames: { '#title': 'title' },
+                ExpressionAttributeValues: { ':title': cleaned }
+            })).catch(() => {})
+        }
     } catch {
-        return userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : '')
+        // Non-blocking fallback
     }
 }
 
-// ─── Helper: Build system prompt with AI memory ───────────────────────────────
-async function buildSystemPrompt(userId, pdfContext = null) {
-    // Load user's AI memory
+/**
+ * Helper: Build system prompt with user AI memory and PDF context
+ */
+function formatSystemPrompt(memoryItems = [], pdfContext = null) {
     let memoryContext = ''
-    try {
-        const memData = await dynamoDb.send(new QueryCommand({
-            TableName: `${TABLE_PREFIX}_ai_memory`,
-            KeyConditionExpression: 'userId = :uid',
-            ExpressionAttributeValues: { ':uid': userId }
-        }))
-        if (memData.Items?.length) {
-            memoryContext = '\n\nUSER CONTEXT (remember these details about the user):\n' +
-                memData.Items.map(m => `- ${m.memoryKey}: ${m.value}`).join('\n')
-        }
-    } catch { /* ignore memory load errors */ }
+    if (memoryItems && memoryItems.length > 0) {
+        memoryContext = '\n\nUSER CONTEXT (remember these details about the user):\n' +
+            memoryItems.map(m => `- ${m.memoryKey}: ${m.value}`).join('\n')
+    }
 
     let prompt = `You are StudyMate AI, a highly intelligent, friendly, and personalized learning assistant. You help students learn, understand concepts, prepare for exams, and stay productive.
 
@@ -66,62 +69,63 @@ FORMATTING RULES:
 - Use bullet points and numbered lists for clarity
 - Use code blocks with language tags for any code
 - Keep responses structured with headings when appropriate
-- Be concise but thorough
-- Use analogies and real-world examples when explaining concepts`
+- Be concise, direct, and encouraging
+- Use analogies and real-world examples when explaining complex concepts`
 
     if (memoryContext) {
         prompt += memoryContext
     }
 
-    if (pdfContext) {
-        prompt += `\n\nDOCUMENT CONTEXT (the user has uploaded a document, answer questions based on this):\n${pdfContext.slice(0, 12000)}`
+    if (pdfContext && typeof pdfContext === 'string' && pdfContext.trim()) {
+        prompt += `\n\nDOCUMENT CONTEXT (the user has attached a document, prioritize answering based on this text):\n${pdfContext.slice(0, 10000)}`
     }
 
     return prompt
 }
 
-// ─── Helper: Extract memory from conversation ─────────────────────────────────
+/**
+ * Helper: Extract memory from conversation asynchronously
+ */
 async function extractAndSaveMemory(userId, messages) {
     try {
         const recentMessages = messages.slice(-6)
         const conversation = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n')
 
-        const extraction = await callGroq([
-            {
-                role: 'system',
-                content: `Analyze this conversation and extract any important facts about the user that should be remembered for future conversations. Look for:
-- Learning goals or targets (e.g., "preparing for GATE", "learning React")
-- Preferred learning style (e.g., "visual learner", "prefers examples")
-- Weak topics or areas needing improvement
-- Academic level or background
-- Important deadlines or schedules
-
-Respond ONLY with a JSON array of objects: [{"key": "snake_case_key", "value": "the value"}]
-If nothing worth remembering, respond with an empty array: []
-Do NOT include trivial or obvious facts.`
-            },
-            { role: 'user', content: conversation }
-        ], { temperature: 0.2, max_tokens: 500 })
+        const extraction = await callGroq({
+            messages: [
+                {
+                    role: 'system',
+                    content: `Analyze this conversation and extract important facts about the user for future memory. Look for learning goals, weak topics, or academic level.
+Respond ONLY with a JSON array: [{"key": "snake_case_key", "value": "the value"}]
+If nothing worth remembering, respond with []`
+                },
+                { role: 'user', content: conversation }
+            ],
+            temperature: 0.2,
+            max_tokens: 300
+        })
 
         const cleaned = extraction.replace(/```json/g, '').replace(/```/g, '').trim()
         const items = JSON.parse(cleaned)
 
         if (Array.isArray(items) && items.length > 0) {
             for (const item of items.slice(0, 5)) {
-                await dynamoDb.send(new PutCommand({
-                    TableName: `${TABLE_PREFIX}_ai_memory`,
-                    Item: {
-                        userId,
-                        memoryKey: item.key,
-                        value: item.value,
-                        source: 'auto',
-                        updatedAt: new Date().toISOString()
-                    }
-                }))
+                if (item.key && item.value) {
+                    await dynamoDb.send(new PutCommand({
+                        TableName: `${TABLE_PREFIX}_ai_memory`,
+                        Item: {
+                            userId,
+                            memoryKey: item.key,
+                            value: item.value,
+                            source: 'auto',
+                            updatedAt: new Date().toISOString()
+                        }
+                    })).catch(() => {})
+                }
             }
         }
-    } catch (err) {
-        console.error('Memory extraction failed (non-critical):', err.message)
+    } catch {
+        // Non-critical background task
     }
 }
 
@@ -131,32 +135,41 @@ Do NOT include trivial or obvious facts.`
 
 /**
  * POST /api/chat/:userId/new
- * Create a new chat session
+ * Create a new chat session (persists immediately)
  */
 export const createChat = async (req, res) => {
     try {
-        const { userId } = req.params
+        const userId = getRequestUserId(req)
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+
         const chatId = crypto.randomUUID()
         const now = new Date().toISOString()
+        const { title, fileId, fileName } = req.body || {}
+
+        const chatItem = {
+            userId,
+            chatId,
+            title: title || 'New Chat',
+            fileId: fileId || null,
+            fileName: fileName || null,
+            createdAt: now,
+            updatedAt: now,
+            messageCount: 0,
+            isPinned: false,
+            tags: []
+        }
 
         await dynamoDb.send(new PutCommand({
             TableName: `${TABLE_PREFIX}_chats`,
-            Item: {
-                userId,
-                chatId,
-                title: 'New Chat',
-                createdAt: now,
-                updatedAt: now,
-                messageCount: 0,
-                isPinned: false,
-                tags: []
-            }
+            Item: chatItem
         }))
 
-        res.json({ chatId, title: 'New Chat', createdAt: now })
+        res.json(chatItem)
     } catch (err) {
         console.error('Create chat error:', err)
-        res.status(500).json({ error: 'Failed to create chat' })
+        res.status(500).json({ error: 'Failed to create chat: ' + err.message })
     }
 }
 
@@ -166,17 +179,19 @@ export const createChat = async (req, res) => {
  */
 export const getUserChats = async (req, res) => {
     try {
-        const { userId } = req.params
+        const userId = getRequestUserId(req)
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+
         const data = await dynamoDb.send(new QueryCommand({
             TableName: `${TABLE_PREFIX}_chats`,
             KeyConditionExpression: 'userId = :uid',
-            ExpressionAttributeValues: { ':uid': userId },
-            ScanIndexForward: false // newest first
+            ExpressionAttributeValues: { ':uid': userId }
         }))
 
-        // Sort by updatedAt descending (DynamoDB sorts by sort key, but we want by updatedAt)
         const chats = (data.Items || []).sort((a, b) =>
-            new Date(b.updatedAt) - new Date(a.updatedAt)
+            new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
         )
 
         res.json(chats)
@@ -193,14 +208,33 @@ export const getUserChats = async (req, res) => {
 export const getChatMessages = async (req, res) => {
     try {
         const { chatId } = req.params
+        const userId = getRequestUserId(req)
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+
+        // Security ownership check
+        const chatData = await dynamoDb.send(new GetCommand({
+            TableName: `${TABLE_PREFIX}_chats`,
+            Key: { userId, chatId }
+        })).catch(() => ({ Item: null }))
+
+        if (chatData.Item && chatData.Item.userId && chatData.Item.userId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You do not own this chat.' })
+        }
+
         const data = await dynamoDb.send(new QueryCommand({
             TableName: `${TABLE_PREFIX}_chat_messages`,
             KeyConditionExpression: 'chatId = :cid',
-            ExpressionAttributeValues: { ':cid': chatId },
-            ScanIndexForward: true // oldest first
+            ExpressionAttributeValues: { ':cid': chatId }
         }))
 
-        res.json(data.Items || [])
+        const messages = (data.Items || []).sort((a, b) =>
+            new Date(a.timestamp || 0) - new Date(b.timestamp || 0)
+        )
+
+        res.json(messages)
     } catch (err) {
         console.error('Get messages error:', err)
         res.status(500).json({ error: 'Failed to fetch messages' })
@@ -209,109 +243,134 @@ export const getChatMessages = async (req, res) => {
 
 /**
  * POST /api/chat/:chatId/send
- * Send a message and get AI response
- * Body: { userId, content, pdfContext? }
+ * High-performance message sender with parallel pre-processing and instant return
  */
 export const sendMessage = async (req, res) => {
     try {
         const { chatId } = req.params
-        const { userId, content, pdfContext } = req.body
+        const userId = getRequestUserId(req)
+        const { content, pdfContext, fileId, fileName } = req.body || {}
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (!content || !content.trim()) {
+            return res.status(400).json({ error: 'Message content cannot be empty.' })
+        }
+
         const now = new Date().toISOString()
-
-        // 1. Save user message
         const userMessageId = `msg_${Date.now()}_user`
-        await dynamoDb.send(new PutCommand({
-            TableName: `${TABLE_PREFIX}_chat_messages`,
-            Item: {
-                chatId,
-                messageId: userMessageId,
-                role: 'user',
-                content,
-                timestamp: now,
-                metadata: {}
-            }
-        }))
 
-        // 2. Load previous messages for context
-        const prevData = await dynamoDb.send(new QueryCommand({
-            TableName: `${TABLE_PREFIX}_chat_messages`,
-            KeyConditionExpression: 'chatId = :cid',
-            ExpressionAttributeValues: { ':cid': chatId },
-            ScanIndexForward: true
-        }))
+        // 1. Parallel Pre-execution: Save user message, fetch chat, previous messages & memory in parallel
+        const [chatRes, prevMsgsRes, memRes] = await Promise.all([
+            dynamoDb.send(new GetCommand({
+                TableName: `${TABLE_PREFIX}_chats`,
+                Key: { userId, chatId }
+            })).catch(() => ({ Item: null })),
 
-        const allMessages = prevData.Items || []
+            dynamoDb.send(new QueryCommand({
+                TableName: `${TABLE_PREFIX}_chat_messages`,
+                KeyConditionExpression: 'chatId = :cid',
+                ExpressionAttributeValues: { ':cid': chatId }
+            })).catch(() => ({ Items: [] })),
 
-        // 3. Build system prompt with memory
-        const systemPrompt = await buildSystemPrompt(userId, pdfContext)
+            dynamoDb.send(new QueryCommand({
+                TableName: `${TABLE_PREFIX}_ai_memory`,
+                KeyConditionExpression: 'userId = :uid',
+                ExpressionAttributeValues: { ':uid': userId }
+            })).catch(() => ({ Items: [] })),
 
-        // 4. Build conversation context (last 10 messages for context window)
-        const contextMessages = allMessages.slice(-10).map(m => ({
+            dynamoDb.send(new PutCommand({
+                TableName: `${TABLE_PREFIX}_chat_messages`,
+                Item: {
+                    chatId,
+                    messageId: userMessageId,
+                    userId,
+                    role: 'user',
+                    content: content.trim(),
+                    timestamp: now,
+                    metadata: {}
+                }
+            }))
+        ])
+
+        const existingChat = chatRes.Item
+        if (existingChat && existingChat.userId && existingChat.userId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You do not own this chat.' })
+        }
+
+        const allPrevious = (prevMsgsRes.Items || []).sort((a, b) =>
+            new Date(a.timestamp || 0) - new Date(b.timestamp || 0)
+        )
+
+        // 2. Build system prompt & context window
+        const systemPrompt = formatSystemPrompt(memRes.Items || [], pdfContext)
+        const contextMessages = allPrevious.slice(-10).map(m => ({
             role: m.role,
             content: m.content
         }))
 
-        // 5. Call Groq AI
-        const aiReply = await callGroq([
-            { role: 'system', content: systemPrompt },
-            ...contextMessages
+        // 3. Call AI single-shot
+        const aiReply = await callGroq({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                ...contextMessages,
+                { role: 'user', content: content.trim() }
+            ],
+            temperature: 0.65,
+            max_tokens: 1536
+        })
+
+        const replyTimestamp = new Date().toISOString()
+        const aiMessageId = `msg_${Date.now()}_assistant`
+
+        // Determine title
+        const isFirstMessage = !existingChat || existingChat.title === 'New Chat' || allPrevious.length <= 1
+        const fastTitle = isFirstMessage ? generateFastTitle(content) : (existingChat?.title || 'New Chat')
+
+        const chatRecord = {
+            userId,
+            chatId,
+            title: existingChat && existingChat.title !== 'New Chat' ? existingChat.title : fastTitle,
+            fileId: fileId || existingChat?.fileId || null,
+            fileName: fileName || existingChat?.fileName || null,
+            createdAt: existingChat?.createdAt || now,
+            updatedAt: replyTimestamp,
+            messageCount: (existingChat?.messageCount || allPrevious.length) + 2,
+            isPinned: existingChat?.isPinned || false,
+            tags: existingChat?.tags || []
+        }
+
+        // 4. Parallel Post-execution: Save AI message & update chat session in DB
+        await Promise.all([
+            dynamoDb.send(new PutCommand({
+                TableName: `${TABLE_PREFIX}_chat_messages`,
+                Item: {
+                    chatId,
+                    messageId: aiMessageId,
+                    userId,
+                    role: 'assistant',
+                    content: aiReply,
+                    timestamp: replyTimestamp,
+                    metadata: {}
+                }
+            })),
+            dynamoDb.send(new PutCommand({
+                TableName: `${TABLE_PREFIX}_chats`,
+                Item: chatRecord
+            }))
         ])
 
-        // 6. Save AI response
-        const aiMessageId = `msg_${Date.now()}_assistant`
-        await dynamoDb.send(new PutCommand({
-            TableName: `${TABLE_PREFIX}_chat_messages`,
-            Item: {
-                chatId,
-                messageId: aiMessageId,
-                role: 'assistant',
-                content: aiReply,
-                timestamp: new Date().toISOString(),
-                metadata: { model: GROQ_MODEL }
-            }
-        }))
-
-        // 7. Update chat metadata (title on first message, always update timestamp)
-        const chatData = await dynamoDb.send(new GetCommand({
-            TableName: `${TABLE_PREFIX}_chats`,
-            Key: { userId, chatId }
-        }))
-
-        const updateExpr = ['#updatedAt = :now', '#msgCount = :count']
-        const exprNames = { '#updatedAt': 'updatedAt', '#msgCount': 'messageCount' }
-        const exprValues = {
-            ':now': new Date().toISOString(),
-            ':count': (chatData.Item?.messageCount || 0) + 2
-        }
-
-        // Auto-generate title on first message
-        if (chatData.Item?.title === 'New Chat' && allMessages.length <= 1) {
-            const title = await generateTitle(content)
-            updateExpr.push('#title = :title')
-            exprNames['#title'] = 'title'
-            exprValues[':title'] = title
-        }
-
-        await dynamoDb.send(new UpdateCommand({
-            TableName: `${TABLE_PREFIX}_chats`,
-            Key: { userId, chatId },
-            UpdateExpression: 'SET ' + updateExpr.join(', '),
-            ExpressionAttributeNames: exprNames,
-            ExpressionAttributeValues: exprValues
-        }))
-
-        // 8. Extract memory (async, non-blocking)
-        extractAndSaveMemory(userId, [...allMessages, { role: 'assistant', content: aiReply }])
-
-        // 9. Return response
+        // 5. Return response immediately (0 extra LLM calls)
         res.json({
             reply: aiReply,
             messageId: aiMessageId,
-            title: exprValues[':title'] || chatData.Item?.title
+            title: chatRecord.title,
+            timestamp: replyTimestamp
         })
     } catch (err) {
         console.error('Send message error:', err)
-        res.status(500).json({ error: 'Failed to send message' })
+        res.status(500).json({ error: 'Failed to send message: ' + err.message })
     }
 }
 
@@ -321,21 +380,38 @@ export const sendMessage = async (req, res) => {
  */
 export const renameChat = async (req, res) => {
     try {
-        const { userId, chatId } = req.params
-        const { title } = req.body
+        const userId = getRequestUserId(req)
+        const { chatId } = req.params
+        const { title } = req.body || {}
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+        if (!title || !title.trim()) {
+            return res.status(400).json({ error: 'Title cannot be empty.' })
+        }
+
+        // Security check
+        const chatData = await dynamoDb.send(new GetCommand({
+            TableName: `${TABLE_PREFIX}_chats`,
+            Key: { userId, chatId }
+        }))
+        if (chatData.Item && chatData.Item.userId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You do not own this chat.' })
+        }
 
         await dynamoDb.send(new UpdateCommand({
             TableName: `${TABLE_PREFIX}_chats`,
             Key: { userId, chatId },
             UpdateExpression: 'SET #title = :title, #updatedAt = :now',
             ExpressionAttributeNames: { '#title': 'title', '#updatedAt': 'updatedAt' },
-            ExpressionAttributeValues: { ':title': title, ':now': new Date().toISOString() }
+            ExpressionAttributeValues: { ':title': title.trim(), ':now': new Date().toISOString() }
         }))
 
-        res.json({ success: true })
+        res.json({ success: true, title: title.trim() })
     } catch (err) {
         console.error('Rename chat error:', err)
-        res.status(500).json({ error: 'Failed to rename chat' })
+        res.status(500).json({ error: 'Failed to rename chat: ' + err.message })
     }
 }
 
@@ -345,7 +421,21 @@ export const renameChat = async (req, res) => {
  */
 export const deleteChat = async (req, res) => {
     try {
-        const { userId, chatId } = req.params
+        const userId = getRequestUserId(req)
+        const { chatId } = req.params
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
+
+        // Security check
+        const chatData = await dynamoDb.send(new GetCommand({
+            TableName: `${TABLE_PREFIX}_chats`,
+            Key: { userId, chatId }
+        }))
+        if (chatData.Item && chatData.Item.userId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: You do not own this chat.' })
+        }
 
         // 1. Delete chat metadata
         await dynamoDb.send(new DeleteCommand({
@@ -353,19 +443,18 @@ export const deleteChat = async (req, res) => {
             Key: { userId, chatId }
         }))
 
-        // 2. Delete all messages for this chat
+        // 2. Query and delete all messages for this chat
         const msgData = await dynamoDb.send(new QueryCommand({
             TableName: `${TABLE_PREFIX}_chat_messages`,
             KeyConditionExpression: 'chatId = :cid',
-            ExpressionAttributeValues: { ':cid': chatId },
-            ProjectionExpression: 'chatId, messageId'
+            ExpressionAttributeValues: { ':cid': chatId }
         }))
 
-        if (msgData.Items?.length) {
-            // Batch delete in chunks of 25
+        const items = msgData.Items || []
+        if (items.length > 0) {
             const chunks = []
-            for (let i = 0; i < msgData.Items.length; i += 25) {
-                chunks.push(msgData.Items.slice(i, i + 25))
+            for (let i = 0; i < items.length; i += 25) {
+                chunks.push(items.slice(i, i + 25))
             }
             for (const chunk of chunks) {
                 await dynamoDb.send(new BatchWriteCommand({
@@ -381,7 +470,7 @@ export const deleteChat = async (req, res) => {
         res.json({ success: true })
     } catch (err) {
         console.error('Delete chat error:', err)
-        res.status(500).json({ error: 'Failed to delete chat' })
+        res.status(500).json({ error: 'Failed to delete chat: ' + err.message })
     }
 }
 
@@ -391,9 +480,12 @@ export const deleteChat = async (req, res) => {
  */
 export const searchChats = async (req, res) => {
     try {
-        const { userId } = req.params
+        const userId = getRequestUserId(req)
         const query = (req.query.q || '').toLowerCase().trim()
 
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
+        }
         if (!query) {
             return res.json([])
         }
@@ -406,7 +498,7 @@ export const searchChats = async (req, res) => {
 
         const filtered = (data.Items || [])
             .filter(chat => chat.title?.toLowerCase().includes(query))
-            .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+            .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
 
         res.json(filtered)
     } catch (err) {

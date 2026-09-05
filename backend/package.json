@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch-path=controllers --watch-path=routes --watch-path=services --watch-path=config --watch-path=server.js server.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
@@ -15,6 +15,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "livekit-server-sdk": "^2.15.1"
+    "livekit-server-sdk": "^2.15.1",
+    "multer": "^2.3.0"
   }
 }

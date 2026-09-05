@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { signOut } from 'aws-amplify/auth'
-import { list, uploadData, getUrl } from 'aws-amplify/storage'
+import { getAllFiles } from '../services/fileApi'
 import { getAuthUser, clearLocalUser } from '../utils/auth'
 import UploadButton from '../components/UploadButton'
 import FileList from '../components/FileList'
@@ -134,7 +134,7 @@ const subjectStyles = {
 const getStyle = (color) => subjectStyles[color] || subjectStyles['subject-violet']
 
 // ─── Subject Card ─────────────────────────────────────────────────────────────
-function SubjectCard({ subject, pdfCount, refreshTrigger, onUploadComplete, onDelete, isCustom }) {
+function SubjectCard({ subject, pdfCount, refreshTrigger, onUploadComplete, onError, onDelete, isCustom }) {
   const [expanded, setExpanded] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const style = getStyle(subject.color)
@@ -142,21 +142,28 @@ function SubjectCard({ subject, pdfCount, refreshTrigger, onUploadComplete, onDe
     <>
       {showConfirm && (
         <ConfirmModal
-          message={`"${subject.name}" will be removed from your dashboard. Uploaded files in S3 are kept.`}
+          message={`"${subject.name}" will be removed from your dashboard.`}
           onConfirm={onDelete} onClose={() => setShowConfirm(false)} />
       )}
       <div className={`${style.card} border rounded-3xl p-5 flex flex-col gap-4 relative group transition-shadow hover:shadow-md`}>
-        {isCustom && (
-          <button onClick={() => setShowConfirm(true)}
-            className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity
-              w-6 h-6 rounded-full bg-white shadow-sm hover:bg-red-50 text-slate-400 hover:text-red-500
-              flex items-center justify-center text-xs border border-slate-200">✕</button>
-        )}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-2">
           <div className={`${style.badge} w-10 h-10 rounded-2xl flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0`}>
             {subject.abbr}
           </div>
-          <UploadButton subjectName={subject.name} onUploadComplete={onUploadComplete} />
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isCustom && (
+              <button
+                onClick={() => setShowConfirm(true)}
+                title="Delete subject"
+                className="opacity-70 group-hover:opacity-100 transition-opacity
+                  w-7 h-7 rounded-full bg-white dark:bg-white/10 shadow-sm hover:bg-red-50 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 dark:hover:text-red-400
+                  flex items-center justify-center text-xs border border-slate-200 dark:border-white/10"
+              >
+                ✕
+              </button>
+            )}
+            <UploadButton subjectName={subject.name} onUploadComplete={onUploadComplete} onError={onError} />
+          </div>
         </div>
         <div>
           <h3 className="text-slate-800 dark:text-white/90 font-semibold text-sm leading-tight">{subject.name}</h3>
@@ -229,40 +236,59 @@ export default function Dashboard() {
     fetchUser()
   }, [navigate])
 
-  useEffect(() => { if (user) loadSubjectsFromS3(user.userId) }, [user])
-  useEffect(() => { if (user && customSubjects !== null) loadAllCounts(user.userId, customSubjects) }, [customSubjects, user])
-  useEffect(() => { if (user && customSubjects !== null) saveSubjectsToS3(user.userId, customSubjects) }, [customSubjects])
+  useEffect(() => {
+    if (user) {
+      loadSubjects(user.userId)
+    }
+  }, [user])
 
-  const saveSubjectsToS3 = async (userId, subjects) => {
+  useEffect(() => {
+    if (user && customSubjects !== null) {
+      loadAllCounts(user.userId, customSubjects)
+    }
+  }, [customSubjects, user])
+
+  useEffect(() => {
+    if (user && customSubjects !== null) {
+      saveSubjects(user.userId, customSubjects)
+    }
+  }, [customSubjects, user])
+
+  const saveSubjects = (userId, subjects) => {
     try {
-      await uploadData({
-        path: `private/${userId}/meta/custom_subjects.json`,
-        data: new Blob([JSON.stringify(subjects)], { type: 'application/json' }),
-        options: { contentType: 'application/json' },
-      }).result
-    } catch (err) { console.error('Failed to save subjects:', err) }
+      localStorage.setItem(`studymate_subjects_${userId}`, JSON.stringify(subjects))
+    } catch (err) {
+      console.error('Failed to save subjects:', err)
+    }
   }
 
-  const loadSubjectsFromS3 = async (userId) => {
+  const loadSubjects = (userId) => {
     try {
-      const { url } = await getUrl({ path: `private/${userId}/meta/custom_subjects.json`, options: { expiresIn: 60 } })
-      const res = await fetch(url.href)
-      if (!res.ok) { setCustomSubjects([]); return }
-      const data = await res.json()
-      setCustomSubjects(Array.isArray(data) ? data : [])
-    } catch { setCustomSubjects([]) }
+      const stored = localStorage.getItem(`studymate_subjects_${userId}`)
+      if (stored) {
+        setCustomSubjects(JSON.parse(stored))
+      } else {
+        setCustomSubjects([])
+      }
+    } catch {
+      setCustomSubjects([])
+    }
   }
 
   const loadAllCounts = async (userId, currentCustom) => {
-    const counts = {}
-    await Promise.all([...DEFAULT_SUBJECTS, ...(currentCustom || [])].map(async (subject) => {
-      try {
-        const prefix = `private/${userId}/${subject.name}/`
-        const result = await list({ path: prefix })
-        counts[subject.name] = result.items.filter(i => i.path !== prefix && i.size > 0).length
-      } catch { counts[subject.name] = 0 }
-    }))
-    setPdfCounts(counts)
+    try {
+      const allFiles = await getAllFiles()
+      const counts = {}
+      const subjectsList = [...DEFAULT_SUBJECTS, ...(currentCustom || [])]
+      subjectsList.forEach(s => { counts[s.name] = 0 })
+      allFiles.forEach(f => {
+        const subj = f.subjectName || 'General'
+        counts[subj] = (counts[subj] || 0) + 1
+      })
+      setPdfCounts(counts)
+    } catch (err) {
+      console.error('Failed to load file counts:', err)
+    }
   }
 
   const handleLogout = async () => {
@@ -272,7 +298,11 @@ export default function Dashboard() {
   }
   const handleAddSubject = (s) => { setCustomSubjects(prev => [...(prev || []), s]); setPdfCounts(prev => ({ ...prev, [s.name]: 0 })); addToast(`"${s.name}" added!`, 'success') }
   const handleDeleteSubject = (name) => { setCustomSubjects(prev => (prev || []).filter(s => s.name !== name)); setPdfCounts(prev => { const n = { ...prev }; delete n[name]; return n }); addToast(`"${name}" removed.`, 'info') }
-  const handleUploadComplete = (subjectName) => { setRefreshMap(prev => ({ ...prev, [subjectName]: (prev[subjectName] || 0) + 1 })); setPdfCounts(prev => ({ ...prev, [subjectName]: (prev[subjectName] || 0) + 1 })); addToast('PDF uploaded!', 'success') }
+  const handleUploadComplete = (subjectName) => {
+    setRefreshMap(prev => ({ ...prev, [subjectName]: (prev[subjectName] || 0) + 1 }))
+    loadAllCounts(user?.userId, customSubjects)
+    addToast('PDF uploaded successfully!', 'success')
+  }
 
   const totalPdfs = Object.values(pdfCounts).reduce((a, b) => a + b, 0)
   const tabs = ['Dashboard', 'Subjects', 'Productivity', 'Analytics', 'Profile']
@@ -455,6 +485,7 @@ export default function Dashboard() {
                     pdfCount={pdfCounts[subject.name] || 0}
                     refreshTrigger={refreshMap[subject.name] || 0}
                     onUploadComplete={() => handleUploadComplete(subject.name)}
+                    onError={(msg) => addToast(msg, 'error')}
                     onDelete={() => handleDeleteSubject(subject.name)}
                     isCustom={!DEFAULT_SUBJECTS.some(d => d.name === subject.name)} />
                 ))}
@@ -491,7 +522,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <UploadButton subjectName={subject.name} onUploadComplete={() => handleUploadComplete(subject.name)} />
+                        <UploadButton subjectName={subject.name} onUploadComplete={() => handleUploadComplete(subject.name)} onError={(msg) => addToast(msg, 'error')} />
                         {!DEFAULT_SUBJECTS.some(d => d.name === subject.name) && (
                           <button onClick={() => handleDeleteSubject(subject.name)}
                             className="text-slate-400 dark:text-white/50 hover:text-red-500 dark:hover:text-red-400 text-xs px-3 py-1.5 rounded-xl

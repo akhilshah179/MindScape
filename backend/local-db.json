@@ -72,24 +72,38 @@
     },
     "akhilshah179_gmail_com": {
       "userId": "akhilshah179_gmail_com",
-      "xp": 0,
+      "xp": 50,
       "level": 0,
-      "totalSolved": 0,
-      "easySolved": 0,
+      "totalSolved": 1,
+      "easySolved": 1,
       "mediumSolved": 0,
       "hardSolved": 0,
-      "currentStreak": 0,
-      "maxStreak": 0,
-      "lastActiveDate": null,
+      "currentStreak": 1,
+      "maxStreak": 1,
+      "lastActiveDate": "2026-09-05",
       "badges": [],
-      "languageUsage": {},
-      "heatmap": {},
-      "fastSolve": false,
+      "languageUsage": {
+        "cpp": 1
+      },
+      "heatmap": {
+        "2026-09-05": 1
+      },
+      "fastSolve": true,
       "contestsJoined": 0,
       "debugUses": 0,
-      "xpHistory": [],
+      "xpHistory": [
+        {
+          "amount": 50,
+          "reason": "Solved Two Sum",
+          "date": "2026-09-05",
+          "timestamp": "2026-09-05T11:01:47.871Z",
+          "problemId": "two-sum",
+          "difficulty": "Easy",
+          "language": "cpp"
+        }
+      ],
       "createdAt": "2026-08-12T09:40:29.040Z",
-      "updatedAt": "2026-08-12T09:40:29.040Z"
+      "updatedAt": "2026-09-05T11:01:57.976Z"
     }
   },
   "studymate_submissions": [
@@ -203,6 +217,58 @@
       "problemId": "two-sum",
       "code": "test",
       "timestamp": "2026-08-26T16:15:34.163Z"
+    },
+    {
+      "submissionId": "def81e15-2e2f-4980-a9ac-7a0b9d65ca73",
+      "userId": "akhilshah179_gmail_com",
+      "problemId": "two-sum",
+      "problemTitle": "Two Sum",
+      "language": "cpp",
+      "code": "class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        unordered_map<int, int> mpp;\n\n        for (int i = 0; i < nums.size(); i++) {\n            int more = target - nums[i];\n\n            if (mpp.find(more) != mpp.end()) {\n                return {mpp[more], i};\n            }\n\n            mpp[nums[i]] = i;\n        }\n\n        return {};\n    }\n};",
+      "verdict": "Accepted",
+      "totalTests": 3,
+      "passedTests": 3,
+      "results": [
+        {
+          "testCase": 1,
+          "input": "[2,7,11,15]\n9",
+          "expectedOutput": "[0,1]",
+          "actualOutput": "[0,1]",
+          "verdict": "Accepted",
+          "passed": true,
+          "time": "0.003",
+          "memory": 1372,
+          "stderr": null,
+          "compile_output": null
+        },
+        {
+          "testCase": 2,
+          "input": "[3,2,4]\n6",
+          "expectedOutput": "[1,2]",
+          "actualOutput": "[1,2]",
+          "verdict": "Accepted",
+          "passed": true,
+          "time": "0.003",
+          "memory": 972,
+          "stderr": null,
+          "compile_output": null
+        },
+        {
+          "testCase": 3,
+          "input": "[3,3]\n6",
+          "expectedOutput": "[0,1]",
+          "actualOutput": "[0,1]",
+          "verdict": "Accepted",
+          "passed": true,
+          "time": "0.003",
+          "memory": 968,
+          "stderr": null,
+          "compile_output": null
+        }
+      ],
+      "timeTaken": 5345,
+      "difficulty": "Easy",
+      "timestamp": "2026-09-05T11:01:43.839Z"
     }
   ],
   "studymate_chats": {
@@ -286,13 +352,131 @@
       "isPinned": false,
       "tags": []
     },
-    "cd247669-cb1f-4b54-b8e6-d203604e4b37": {
+    "1372e1d6-f792-448a-9677-8daea4565d42": {
       "userId": "akhilshah179_gmail_com",
-      "chatId": "cd247669-cb1f-4b54-b8e6-d203604e4b37",
+      "chatId": "1372e1d6-f792-448a-9677-8daea4565d42",
       "title": "New Chat",
-      "createdAt": "2026-08-26T16:35:07.594Z",
-      "updatedAt": "2026-08-26T16:35:07.594Z",
+      "createdAt": "2026-09-05T10:03:55.078Z",
+      "updatedAt": "2026-09-05T10:03:55.078Z",
       "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "8bfe4584-4188-4b0f-854e-7a2ca6ad7f38": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "8bfe4584-4188-4b0f-854e-7a2ca6ad7f38",
+      "title": "New Chat",
+      "createdAt": "2026-09-05T10:03:54.073Z",
+      "updatedAt": "2026-09-05T10:03:54.073Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "4519ce17-f2b5-45ce-bb2d-91531d801cc8": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "4519ce17-f2b5-45ce-bb2d-91531d801cc8",
+      "title": "New Chat",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:20:08.390Z",
+      "updatedAt": "2026-09-05T10:20:08.390Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "41bef740-f846-43c3-a86a-b0f0f492a696": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "41bef740-f846-43c3-a86a-b0f0f492a696",
+      "title": "New Chat",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:20:18.707Z",
+      "updatedAt": "2026-09-05T10:20:18.707Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "f78194da-7812-40e3-b9e8-659515861fc7": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "f78194da-7812-40e3-b9e8-659515861fc7",
+      "title": "Greeting",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:20:19.742Z",
+      "updatedAt": "2026-09-05T10:21:46.538Z",
+      "messageCount": 2,
+      "isPinned": false,
+      "tags": []
+    },
+    "9eab492a-21fb-4bc3-be52-4636db106474": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "9eab492a-21fb-4bc3-be52-4636db106474",
+      "title": "DSA Concepts Explained",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:20:21.065Z",
+      "updatedAt": "2026-09-05T10:20:45.163Z",
+      "messageCount": 2,
+      "isPinned": false,
+      "tags": []
+    },
+    "355abccc-4c66-4577-8350-406fdcc13fd3": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "title": "Explain best time buy and sell",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:24:55.972Z",
+      "updatedAt": "2026-09-05T10:57:34.707Z",
+      "messageCount": 8,
+      "isPinned": false,
+      "tags": []
+    },
+    "bench_chat_1788604251922": {
+      "userId": "bench_user_1788604251922",
+      "chatId": "bench_chat_1788604251922",
+      "title": "Benefits of SQL Database Indexing",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:30:51.978Z",
+      "updatedAt": "2026-09-05T10:30:56.607Z",
+      "messageCount": 2,
+      "isPinned": false,
+      "tags": []
+    },
+    "bench_chat_1788605453186": {
+      "userId": "bench_user_1788605453185",
+      "chatId": "bench_chat_1788605453186",
+      "title": "What are the main benefits of...",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T10:50:53.266Z",
+      "updatedAt": "2026-09-05T10:51:02.010Z",
+      "messageCount": 4,
+      "isPinned": false,
+      "tags": []
+    },
+    "cd56342d-3f58-4a73-bd2e-ee6cc1741a03": {
+      "userId": "test_user_phase_a",
+      "chatId": "cd56342d-3f58-4a73-bd2e-ee6cc1741a03",
+      "title": "Algorithms Revision",
+      "fileId": "test_sample_pdf_id_101",
+      "fileName": null,
+      "createdAt": "2026-09-05T11:19:50.115Z",
+      "updatedAt": "2026-09-05T11:19:50.115Z",
+      "messageCount": 0,
+      "isPinned": false,
+      "tags": []
+    },
+    "2e3f1263-27bf-41a9-ab20-d075a1656e25": {
+      "userId": "akhilshah179_gmail_com",
+      "chatId": "2e3f1263-27bf-41a9-ab20-d075a1656e25",
+      "title": "Explain the concept of replication",
+      "fileId": null,
+      "fileName": null,
+      "createdAt": "2026-09-05T11:21:41.709Z",
+      "updatedAt": "2026-09-05T11:21:45.068Z",
+      "messageCount": 2,
       "isPinned": false,
       "tags": []
     }
@@ -441,6 +625,409 @@
       "metadata": {
         "model": "llama-3.3-70b-versatile"
       }
+    },
+    {
+      "chatId": "9eab492a-21fb-4bc3-be52-4636db106474",
+      "messageId": "msg_1788603635570_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "explain me dsa",
+      "timestamp": "2026-09-05T10:20:33.553Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "9eab492a-21fb-4bc3-be52-4636db106474",
+      "messageId": "msg_1788603645163_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "Hello! I’m **StudyMate AI**. Great choice to dive into **DSA** (Data Structures and Algorithms). It is the backbone of computer science and the most critical skill for coding interviews and system design.\n\nThink of DSA as the **toolkit** a programmer uses to solve problems efficiently. Just as a carpenter needs the right tools (hammer, saw, drill) to build a sturdy house, a programmer needs the right DSA tools to build fast, efficient software.\n\nHere is a structured breakdown to help you master it.\n\n---\n\n### 1. What is DSA?\n*   **Data Structures (DS):** The way data is **organized, stored, and accessed** in memory.\n*   **Algorithms (A):** Step-by-step procedures or instructions to manipulate that data to solve a problem.\n\n> **Analogy:** Imagine a library.\n> *   The **Data Structure** is how the books are shelved (by author, by genre, by call number).\n> *   The **Algorithm** is the method you use to find a specific book (searching by title vs. scanning every shelf).\n\n---\n\n### 2. Core Data Structures\nThese are the \"containers\" for your data.\n\n| Structure | Real-World Analogy | Key Use Case |\n| :--- | :--- | :--- |\n| **Arrays** | A row of mailboxes | Fast access by index, fixed size |\n| **Linked Lists** | A treasure map (each clue leads to the next) | Dynamic size, easy insertion/deletion |\n| **Stacks** | A stack of plates | LIFO (Last-In-First-Out), undo/redo functions |\n| **Queues** | A line at a coffee shop | FIFO (First-In-First-Out), task scheduling |\n| **Hash Tables** | A dictionary | Fast lookups by key (e.g., passwords, caching) |\n| **Trees** | A family tree or org chart | Hierarchical data, file systems, search |\n| **Graphs** | A map of cities with roads | Social networks, GPS routing, web links |\n\n---\n\n### 3. Key Algorithms\nThese are the \"logic\" you apply to the data.\n\n*   **Sorting:** Arranging data in order.\n    *   *Examples:* Bubble Sort (simple but slow), Quick Sort (fast, common), Merge Sort (stable, good for large data).\n*   **Searching:** Finding an item.\n    *   *Linear Search:* Check every item (slow).\n    *   *Binary Search:* Split the list in half repeatedly (fast, requires sorted data).\n*   **Recursion:** A function that calls itself.\n    *   *Example:* Calculating factorials or traversing a tree.\n*   **Dynamic Programming (DP):** Solving complex problems by breaking them into simpler sub-problems and storing their solutions.\n    *   *Example:* Fibonacci sequence, shortest path.\n*   **Greedy Algorithms:** Making the locally optimal choice at each stage.\n    *   *Example:* Giving change using the fewest coins.\n\n---\n\n### 4. Why Does DSA Matter?\n*   **Efficiency:** An algorithm with **O(n)** complexity is faster than **O(n²)** for large datasets.\n*   **Memory Usage:** Choosing the right data structure saves RAM and CPU power.\n*   **Interviews:** Top tech companies (FAANG, etc.) focus heavily on DSA in coding interviews.\n\n---\n\n### 5. How to Learn DSA Effectively\n\n#### Step 1: Master the Basics\n*   Pick one language (Python, Java, C++, or JavaScript).\n*   Understand **Big O Notation** (time and space complexity). This tells you how your code scales.\n    *   *O(1):* Constant time (instant).\n    *   *O(log n):* Logarithmic (very fast, e.g., binary search).\n    *   *O(n):* Linear (proportional to input size).\n    *   *O(n²):* Quadratic (slow, nested loops).\n\n#### Step 2: Practice Pattern-Based\nDon’t just memorize problems. Recognize **patterns**:\n*   **Two Pointers:** Used for arrays and strings.\n*   **Sliding Window:** Used for subarrays with a specific property.\n*   **BFS/DFS:** Used for graph and tree traversal.\n*   **Priority Queue/Heap:** Used for finding the K-th smallest/largest.\n\n#### Step 3: Solve Problems\n*   Start with **Easy** problems to build confidence.\n*   Move to **Medium** problems (most interview questions are here).\n*   Attempt **Hard** problems only after mastering mediums.\n*   **Resources:** LeetCode, HackerRank, GeeksforGeeks.\n\n#### Step 4: Review and Refactor\n*   After solving a problem, ask: *\"Is there a more efficient way?\"*\n*   Try to optimize your solution from O(n²) to O(n log n) or O(n).\n\n---\n\n### 6. A Simple Example: Binary Search\n\n**Problem:** Find the number `7` in this sorted list: `[1, 3, 5, 7, 9, 11]`\n\n**Linear Search (Naive):**\n1. Check 1 → No\n2. Check 3 → No\n3. Check 5 → No\n4. Check 7 → **Yes!** (4 steps)\n\n**Binary Search (Efficient):**\n1. Check middle (`5`) → 7 is greater, so ignore left half.\n2. New list: `[7, 9, 11]`\n3. Check middle (`9`) → 7 is smaller, so ignore right half.\n4. New list: `[7]`\n5. Check middle (`7`) → **Yes!** (3 steps)\n\nAs the list grows, Binary Search becomes exponentially faster.\n\n---\n\n### StudyMate Tip 📝\n> **Consistency > Intensity.** Solving 1-2 DSA problems daily is far more effective than cramming 20 problems once a week.\n\nWould you like me to:\n1. Explain a specific data structure (like **Trees** or **Hash Maps**) in detail?\n2. Provide a list of **top 10 easy problems** to start with?\n3. Explain **Big O Notation** with more examples?\n\nLet me know how you'd like to proceed!",
+      "timestamp": "2026-09-05T10:20:45.163Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "f78194da-7812-40e3-b9e8-659515861fc7",
+      "messageId": "msg_1788603687218_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "hello",
+      "timestamp": "2026-09-05T10:21:25.196Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "f78194da-7812-40e3-b9e8-659515861fc7",
+      "messageId": "msg_1788603706538_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "Hello! 👋 It’s great to meet you. I’m **StudyMate AI**, your personal learning assistant.\n\nI see you’re focused on mastering **Data Structures and Algorithms (DSA)**. That is a challenging but incredibly rewarding goal! Whether you are preparing for technical interviews, a university exam, or just want to become a better programmer, I am here to help.\n\nHere are a few ways we can get started:\n\n1.  **Concept Check**: Do you want to review a specific data structure (like **Linked Lists**, **Trees**, **Hash Maps**) or algorithm (like **Sorting**, **Recursion**, **Dynamic Programming**)?\n2.  **Problem Solving**: Do you have a specific coding problem you’re stuck on? Paste it here, and I can guide you through the logic.\n3.  **Study Plan**: Would you like help creating a structured roadmap for your DSA learning?\n4.  **Quick Quiz**: I can ask you a conceptual question to test your current understanding.\n\nWhat’s on your mind today? 🚀",
+      "timestamp": "2026-09-05T10:21:46.538Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788604251922",
+      "messageId": "msg_1788604251979_user",
+      "userId": "bench_user_1788604251922",
+      "role": "user",
+      "content": "What are the main benefits of indexing in SQL databases?",
+      "timestamp": "2026-09-05T10:30:51.978Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788604251922",
+      "messageId": "msg_1788604256607_assistant",
+      "userId": "bench_user_1788604251922",
+      "role": "assistant",
+      "content": "Hello! I’m **StudyMate AI**. Great question! Understanding **indexes** is one of the most important concepts in database performance optimization.\n\nThink of an SQL table like a massive library. Without an index, finding a specific book requires walking down every single aisle, shelf by shelf (a **Full Table Scan**). An index is like the library’s **card catalog** or a book’s **table of contents**—it points you directly to the page (or row) you need.\n\nHere are the main benefits of indexing in SQL databases:\n\n### 1. 🚀 Dramatically Faster Query Performance\nThis is the primary benefit.\n- **How it works:** Instead of reading every row in a table (O(n) complexity), the database uses the index to jump directly to the relevant rows (O(log n) complexity).\n- **Analogy:** Searching for \"Harry Potter\" in a dictionary with an index takes seconds; searching without one means flipping through hundreds of pages.\n- **Best for:** `WHERE`, `JOIN`, `ORDER BY`, and `GROUP BY` clauses.\n\n### 2. ⚡ Faster Sorts and Grouping\n- When you use `ORDER BY` or `GROUP BY` on an indexed column, the database can read the data in the pre-sorted order of the index.\n- This avoids the need for the database to sort the data in memory (a resource-intensive operation).\n\n### 3. 🔒 Enforcing Uniqueness\n- **Unique Indexes** ensure that no duplicate values exist in a column (or combination of columns).\n- **Example:** Preventing two users from signing up with the same email address.\n- **Note:** Primary Keys and Unique Constraints automatically create unique indexes.\n\n### 4. 📈 Improved Join Performance\n- When joining two large tables, having indexes on the `JOIN` columns allows the database to quickly match rows between tables without scanning entire tables.\n\n### 5. 📊 Better Query Plan Optimization\n- The query optimizer uses index metadata (statistics) to choose the most efficient execution plan.\n- It can decide whether to use an index scan, a full table scan, or other methods based on the data distribution.\n\n---\n\n### ⚠️ Important Trade-offs (The \"Cost\" of Indexing)\nWhile indexes speed up **reads** (`SELECT`), they slow down **writes** (`INSERT`, `UPDATE`, `DELETE`).\n\n| Operation | Impact with Indexes |\n|-----------|---------------------|\n| **SELECT** | ✅ **Faster** (especially on large tables) |\n| **INSERT** | ❌ **Slower** (database must update all relevant indexes) |\n| **UPDATE** | ❌ **Slower** (if the indexed column changes, the index must be rebalanced) |\n| **DELETE** | ❌ **Slower** (index entries must be removed) |\n| **Storage** | ❌ **More disk space** consumed |\n\n---\n\n### 🎯 Best Practices for Indexing\n1. **Index columns used in `WHERE` clauses** (especially with filters).\n2. **Index columns used in `JOIN` operations.**\n3. **Use Composite Indexes** for queries that filter on multiple columns (e.g., `WHERE age > 30 AND city = 'NYC'`).\n4. **Don’t over-index:** Too many indexes degrade write performance and increase maintenance overhead.\n5. **Monitor performance:** Use `EXPLAIN` (MySQL/PostgreSQL) or `SET STATISTICS PROFILE ON` (SQL Server) to see if your indexes are being used.\n\n### 💡 Quick Example\n```sql\n-- Without Index: Scans all 1 million rows\nSELECT * FROM users WHERE email = 'jane@example.com';\n\n-- With Index: Jumps directly to the row\nCREATE INDEX idx_users_email ON users(email);\nSELECT * FROM users WHERE email = 'jane@example.com'; -- Much faster!\n```\n\nWould you like me to explain **composite indexes** or **covering indexes** in more detail? Or perhaps help you decide which columns to index in a specific scenario? 😊",
+      "timestamp": "2026-09-05T10:30:56.607Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788604251922",
+      "messageId": "msg_1788604258636_user",
+      "userId": "bench_user_1788604251922",
+      "role": "user",
+      "content": "Give a quick example of a B-Tree index lookup.",
+      "timestamp": "2026-09-05T10:30:58.636Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788605453186",
+      "messageId": "msg_1788605453267_user",
+      "userId": "bench_user_1788605453185",
+      "role": "user",
+      "content": "What are the main benefits of indexing in SQL databases?",
+      "timestamp": "2026-09-05T10:50:53.266Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788605453186",
+      "messageId": "msg_1788605456752_assistant",
+      "userId": "bench_user_1788605453185",
+      "role": "assistant",
+      "content": "## 📚 Main Benefits of Indexing in SQL Databases\n\n**Indexing** is like a *table of contents* for your database tables. It tells the database engine where to find data quickly, rather than scanning every row.\n\n### 1️⃣ Faster Query Performance\n- **Quick look‑ups**: An index lets the engine jump straight to the rows that match a `WHERE` clause, a join condition, or an `ORDER BY`.\n- **Reduced I/O**: Fewer disk reads mean less CPU and memory usage, which is especially noticeable on large tables.\n\n### 2️⃣ Efficient Sorting & Ordering\n- **Built‑in order**: Many indexes store data in a sorted structure (e.g., B‑tree), so `ORDER BY` clauses can be satisfied without an additional sort step.\n- **Range queries**: `BETWEEN`, `>`, `<` operations can traverse the index tree efficiently.\n\n### 3️⃣ Enforced Uniqueness\n- **Primary keys & unique constraints**: Indexes automatically enforce that values are distinct, preventing duplicate records without extra code.\n\n### 4️⃣ Optimized Joins\n- **Hash or merge joins**: When two tables share an indexed column, the database can use more efficient join algorithms.\n- **Reduced join cost**: Indexes cut the search space dramatically for each row being joined.\n\n### 5️⃣ Improved Data Integrity Checks\n- **Foreign keys**: Indexes on referenced columns speed up referential integrity checks, making inserts, updates, and deletes cheaper.\n\n### 6️⃣ Better Maintenance Operations\n- **Smaller transaction logs**: Faster queries mean less logging activity during bulk operations.\n- **Quicker backups**: Indexes reduce the amount of data the backup engine must process for certain operations.\n\n---\n\n### Quick Analogy\nThink of a **library**:  \n- Without an index, you’d have to flip through every book to find a title.  \n- With an index (or a catalog), you can go straight to the shelf and page number.  \n- The same principle applies to databases—indexes let you skip the “book flipping” and go directly to the data you need.\n\n---\n\n### When to Use Indexes\n- **Frequent reads** on specific columns.\n- **Large tables** where full scans become a bottleneck.\n- **Columns used in `WHERE`, `JOIN`, `ORDER BY`, or `GROUP BY`** clauses.\n\n---\n\n### A Word of Caution\n- **Maintenance cost**: Every insert, update, or delete must also update the index, adding overhead.\n- **Storage**: Indexes consume disk space; balance read speed against storage cost.\n\n---\n\n**Takeaway:**  \nIndexes are your database’s *shortcut lanes*. They dramatically speed up read operations, enforce uniqueness, and make joins and sorts efficient—at the cost of extra storage and write overhead. Use them wisely, and your queries will feel like a breeze! 🚀",
+      "timestamp": "2026-09-05T10:50:56.752Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788605453186",
+      "messageId": "msg_1788605458807_user",
+      "userId": "bench_user_1788605453185",
+      "role": "user",
+      "content": "Give a quick example of a B-Tree index lookup.",
+      "timestamp": "2026-09-05T10:50:58.807Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "bench_chat_1788605453186",
+      "messageId": "msg_1788605462010_assistant",
+      "userId": "bench_user_1788605453185",
+      "role": "assistant",
+      "content": "## 📖 Quick Example: B‑Tree Index Lookup\n\n### 1️⃣ Setup\n\n```sql\n-- Create a simple table\nCREATE TABLE Employees (\n    EmpID   INT PRIMARY KEY,\n    Name    VARCHAR(50),\n    DeptID  INT\n);\n\n-- Create a B‑Tree index on DeptID\nCREATE INDEX idx_dept ON Employees(DeptID);\n```\n\n### 2️⃣ How the B‑Tree Works\n\n- **Root node** contains a few key values (e.g., `DeptID` ranges).\n- Each internal node points to child nodes that hold a subset of the range.\n- **Leaf nodes** store the actual row pointers (row IDs).\n\n```\nRoot\n ├─ 10  ──►  Node A\n ├─ 20  ──►  Node B\n └─ 30  ──►  Node C\n\nNode A\n ├─ 12  ──►  Leaf 1 (EmpID 101)\n └─ 15  ──►  Leaf 2 (EmpID 102)\n\n... (similar for Node B & C)\n```\n\n### 3️⃣ Lookup Example\n\n```sql\nSELECT * FROM Employees WHERE DeptID = 15;\n```\n\n**Step‑by‑step traversal**\n\n1. **Start at Root**  \n   - Compare `15` with root keys (`10`, `20`, `30`).  \n   - 15 > 10 and < 20 → go to **Node A**.\n\n2. **Node A**  \n   - Compare `15` with keys `12`, `15`.  \n   - 15 equals `15` → go to the leaf that points to **EmpID 102**.\n\n3. **Leaf Node**  \n   - Retrieve the row with **EmpID 102** (and any other rows in that leaf if duplicates exist).\n\nResult: The engine fetches the matching row(s) **in O(log n)** time, far faster than scanning the whole table.\n\n---\n\n### 4️⃣ Key Takeaway\n\n- **B‑Tree indexes** keep data sorted and split into nodes, enabling a *divide‑and‑conquer* search that scales logarithmically with table size.  \n- Even on millions of rows, the lookup path is just a handful of node visits—think of it as a phone‑book lookup that goes straight to the page number. 🚀",
+      "timestamp": "2026-09-05T10:51:02.010Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605758655_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "explain best time buy and sell stocks problem",
+      "timestamp": "2026-09-05T10:55:58.655Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605762147_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "# 📈 Best Time to Buy and Sell Stock – Problem Overview\n\n**Goal:**  \nGiven an array `prices` where `prices[i]` is the price of a stock on day `i`, find the **maximum profit** you can achieve by making **one** buy and one sell transaction.\n\n**Key constraints**\n- You must **buy before you sell**.\n- You can only complete **at most one** transaction (one buy + one sell).\n\n---\n\n## 🔍 Intuition & Analogy\n\nThink of the price array as a *roller‑coaster*:\n\n- Each day’s price is a **height**.\n- You want to **step on** at a low point (buy) and **step off** at a high point (sell) **after** that low.\n- The profit is the vertical distance between the two points.\n\nThe challenge is to find the *largest upward slope* in the roller‑coaster.\n\n---\n\n## 📊 Brute‑Force Approach\n\n```text\nmaxProfit = 0\nfor i in 0 .. n-1:          // buy day\n    for j in i+1 .. n-1:    // sell day\n        profit = prices[j] - prices[i]\n        if profit > maxProfit:\n            maxProfit = profit\n```\n\n- **Time Complexity:** `O(n²)` – too slow for large inputs.\n- **Space Complexity:** `O(1)`.\n\n---\n\n## 🏎️ Optimal Linear‑Time Solution\n\n### Idea\nTrack the **minimum price seen so far** while iterating through the array.  \nFor each day, compute the profit if you sold on that day using the lowest price up to that point. Keep the best profit found.\n\n### Algorithm\n\n1. `minPrice = +∞`\n2. `maxProfit = 0`\n3. For each `price` in `prices`:\n   - If `price < minPrice`: update `minPrice = price` (new lowest buying point).\n   - Else compute `potentialProfit = price - minPrice`.\n   - If `potentialProfit > maxProfit`: update `maxProfit = potentialProfit`.\n4. Return `maxProfit`.\n\n### Pseudocode\n\n```python\ndef maxProfit(prices):\n    minPrice = float('inf')\n    maxProfit = 0\n    for price in prices:\n        if price < minPrice:\n            minPrice = price\n        else:\n            profit = price - minPrice\n            if profit > maxProfit:\n                maxProfit = profit\n    return maxProfit\n```\n\n### Complexity\n- **Time:** `O(n)` – one pass through the array.\n- **Space:** `O(1)` – constant extra memory.\n\n---\n\n## 📌 Edge Cases\n\n| Scenario | Explanation |\n|----------|-------------|\n| All prices decreasing | `maxProfit` stays `0` (no profitable transaction). |\n| Single element | `maxProfit` is `0` (cannot sell). |\n| Empty array | Return `0`. |\n\n---\n\n## 🧪 Quick Test\n\n```python\nprices = [7,1,5,3,6,4]\nprint(maxProfit(prices))  # ➜ 5 (buy at 1, sell at 6)\n```\n\n---\n\n## 📚 Takeaway\n\n- **Track the minimum** so far → gives the best possible buy point up to the current day.\n- **Compute profit on the fly** → no need for nested loops.\n- The solution is a classic example of the **\"one‑pass scan\"** pattern in DSA.\n\nFeel free to ask for a deeper dive into variations (e.g., multiple transactions, transaction fees, cooldowns)!",
+      "timestamp": "2026-09-05T10:56:02.147Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605790659_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "Generate 5 multiple-choice questions about [topic]. For each question, provide 4 options (A-D) and indicate the correct answer with a brief explanation.",
+      "timestamp": "2026-09-05T10:56:30.659Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605793442_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "Sure! Could you let me know which **topic** you’d like the multiple‑choice questions to cover? Once I have that, I’ll craft the questions, options, and explanations for you.",
+      "timestamp": "2026-09-05T10:56:33.442Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605809010_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "Create detailed study notes for dsa suitable for exam preparation. Include: definitions, key formulas/rules, examples, common exam questions, and memory aids/mnemonics.",
+      "timestamp": "2026-09-05T10:56:49.010Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605813244_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "# 📚 Study Notes: Mastering Data Structures & Algorithms (DSA)\n\n> **Goal:** Equip you with clear definitions, formulas, examples, and exam‑ready questions for every major DSA topic.  \n> **Tip:** Use the **mnemonics** at the end of each section to lock concepts in your memory.\n\n---\n\n## 1. Complexity Theory\n\n| Concept | Definition | Big‑O Notation | Example |\n|---------|------------|----------------|---------|\n| **Time Complexity** | How runtime grows with input size `n` | `O(f(n))` | Sorting: `O(n log n)` |\n| **Space Complexity** | Extra memory used (excluding input) | `O(f(n))` | Recursion stack: `O(n)` |\n| **Worst‑Case / Best‑Case / Average‑Case** | Different scenarios of input | `O(n²)`, `O(n)`, `O(n log n)` | QuickSort: worst `O(n²)`, average `O(n log n)` |\n\n> **Mnemonic:** **T**ime **S**tarts **S**lowly → **TSS** (Time, Space, Size).\n\n---\n\n## 2. Arrays & Strings\n\n### Definitions\n- **Array**: Contiguous block of memory holding elements of the same type.  \n- **String**: Array of characters terminated by a null character (`'\\0'`) in C/C++.\n\n### Key Operations\n| Operation | Time |\n|-----------|------|\n| Access by index | **O(1)** |\n| Search (unsorted) | **O(n)** |\n| Search (sorted) | **O(log n)** (binary search) |\n| Insert/Delete (end) | **O(1)** (amortized) |\n| Insert/Delete (middle) | **O(n)** |\n\n### Example\n```java\nint[] a = {3, 5, 7, 9};\nint sum = 0;\nfor (int val : a) sum += val;   // sum = 24\n```\n\n### Common Exam Question\n> **Q:** Given an unsorted array, how do you find the **maximum subarray sum**?  \n> **A:** Use Kadane’s algorithm (`O(n)`).\n\n### Mnemonic\n> **“A**rray **S**ays **I**nstant **A**ccess” → **ASIA** (Array, Search, Indexing, Access).\n\n---\n\n## 3. Linked Lists\n\n### Definitions\n- **Singly Linked List (SLL)**: Each node points to the next node.  \n- **Doubly Linked List (DLL)**: Each node points to both next and previous nodes.  \n- **Circular Linked List**: Last node points back to the head.\n\n### Key Operations\n| Operation | Time |\n|-----------|------|\n| Insert at head | **O(1)** |\n| Insert at tail | **O(1)** (if tail pointer) |\n| Search | **O(n)** |\n| Delete | **O(1)** (if node reference known) |\n\n### Example (Singly)\n```python\nclass Node:\n    def __init__(self, val):\n        self.val = val\n        self.next = None\n\nhead = Node(1)\nhead.next = Node(2)\nhead.next.next = Node(3)\n```\n\n### Common Exam Question\n> **Q:** Reverse a linked list *iteratively* and *recursively*.  \n> **A:** Provide both code snippets and explain space usage.\n\n### Mnemonic\n> **“S**ingly **D**oes **C**ircle**” → **S**ingly, **D**oubly, **C**ircular.\n\n---\n\n## 4. Stacks & Queues\n\n### Definitions\n- **Stack**: LIFO (Last In, First Out).  \n- **Queue**: FIFO (First In, First Out).\n\n### Key Operations\n| Operation | Stack | Queue |\n|-----------|-------|-------|\n| Push / Enqueue | **O(1)** | **O(1)** |\n| Pop / Dequeue | **O(1)** | **O(1)** |\n| Peek / Front | **O(1)** | **O(1)** |\n\n### Example (Stack)\n```java\nStack<Integer> st = new Stack<>();\nst.push(10);\nint top = st.pop();   // 10\n```\n\n### Common Exam Question\n> **Q:** Evaluate an expression in Reverse Polish Notation (RPN).  \n> **A:** Use a stack to compute the result.\n\n### Mnemonic\n> **“S**tack **S**aves **S**paces**” → **SSS** (Stack, Space, Speed).\n\n---\n\n## 5. Trees\n\n### Definitions\n- **Binary Tree**: Each node ≤ 2 children.  \n- **Binary Search Tree (BST)**: Left < node < right.  \n- **AVL / Red‑Black**: Self‑balancing BSTs.  \n- **Trie**: Prefix tree for strings.\n\n### Key Traversals\n| Traversal | Order |\n|-----------|-------|\n| In‑order | Left, Root, Right (BST gives sorted order) |\n| Pre‑order | Root, Left, Right |\n| Post‑order | Left, Right, Root |\n| Level‑order | Breadth‑first (queue) |\n\n### Example (BST)\n```python\nclass Node:\n    def __init__(self, key):\n        self.key = key\n        self.left = self.right = None\n\ndef insert(root, key):\n    if not root: return Node(key)\n    if key < root.key: root.left = insert(root.left, key)\n    else: root.right = insert(root.right, key)\n    return root\n```\n\n### Common Exam Question\n> **Q:** Find the *Lowest Common Ancestor* (LCA) of two nodes in a BST.  \n> **A:** Use BST property to walk from root.\n\n### Mnemonic\n> **“T**rees **I**n **B**inary **S**tructure” → **TIBS** (Tree, Inorder, Binary, Search).\n\n---\n\n## 6. Graphs\n\n### Definitions\n- **Undirected / Directed**  \n- **Weighted / Unweighted**  \n- **Adjacency Matrix / List**\n\n### Key Algorithms\n| Algorithm | Purpose | Complexity |\n|-----------|---------|------------|\n| DFS (Depth‑First Search) | Traversal, cycle detection | **O(V+E)** |\n| BFS (Breadth‑First Search) | Shortest path in unweighted | **O(V+E)** |\n| Dijkstra | Shortest path (positive weights) | **O((V+E) log V)** |\n| Bellman‑Ford | Shortest path",
+      "timestamp": "2026-09-05T10:56:53.244Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605849904_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "Create a detailed mind map or hierarchical outline for dsa. Start from the main concept and branch out into subtopics, sub-subtopics, and key details. Use indentation to show hierarchy.",
+      "timestamp": "2026-09-05T10:57:29.904Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "355abccc-4c66-4577-8350-406fdcc13fd3",
+      "messageId": "msg_1788605854707_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "## 📌 DSA Mind Map / Hierarchical Outline  \n\n```\nData Structures & Algorithms (DSA)\n│\n├─ 1. Complexity Theory\n│   ├─ 1.1 Big‑O, Big‑Ω, Big‑Θ\n│   ├─ 1.2 Worst‑Case / Best‑Case / Average‑Case\n│   ├─ 1.3 Amortized Analysis\n│   └─ 1.4 Space vs. Time trade‑offs\n│\n├─ 2. Core Data Structures\n│   ├─ 2.1 Arrays & Strings\n│   │   ├─ 2.1.1 Static vs. Dynamic arrays\n│   │   ├─ 2.1.2 String manipulation (prefix, suffix, substring)\n│   │   └─ 2.1.3 Common operations (search, insert, delete)\n│   ├─ 2.2 Linked Lists\n│   │   ├─ 2.2.1 Singly, Doubly, Circular\n│   │   ├─ 2.2.2 Node structure\n│   │   └─ 2.2.3 Operations (insert, delete, reverse)\n│   ├─ 2.3 Stacks & Queues\n│   │   ├─ 2.3.1 Implementation (array, linked list, deque)\n│   │   ├─ 2.3.2 Applications (RPN, BFS/DFS, buffering)\n│   │   └─ 2.3.3 Circular queue optimization\n│   ├─ 2.4 Trees\n│   │   ├─ 2.4.1 Binary Tree\n│   │   ├─ 2.4.2 Binary Search Tree (BST)\n│   │   ├─ 2.4.3 Self‑balancing BSTs (AVL, Red‑Black)\n│   │   ├─ 2.4.4 B‑Tree / B+‑Tree (database indexing)\n│   │   ├─ 2.4.5 Trie (prefix tree)\n│   │   └─ 2.4.6 Heap (Min‑/Max‑Heap)\n│   ├─ 2.5 Graphs\n│   │   ├─ 2.5.1 Representation (adjacency list, matrix)\n│   │   ├─ 2.5.2 Directed vs. Undirected, Weighted vs. Unweighted\n│   │   ├─ 2.5.3 Traversals (DFS, BFS)\n│   │   ├─ 2.5.4 Shortest Path (Dijkstra, Bellman‑Ford, Floyd‑Warshall)\n│   │   ├─ 2.5.5 Minimum Spanning Tree (Kruskal, Prim)\n│   │   └─ 2.5.6 Topological Sort, Strongly Connected Components\n│   └─ 2.6 Hashing\n│       ├─ 2.6.1 Hash functions & collisions\n│       ├─ 2.6.2 Hash tables (open addressing, chaining)\n│       └─ 2.6.3 Applications (caching, sets, maps)\n│\n├─ 3. Algorithms & Paradigms\n│   ├─ 3.1 Sorting\n│   │   ├─ 3.1.1 Comparison‑based (QuickSort, MergeSort, HeapSort)\n│   │   ├─ 3.1.2 Non‑comparison (Counting, Radix, Bucket)\n│   │   └─ 3.1.4 In‑place vs. Stable\n│   ├─ 3.2 Searching\n│   │   ├─ 3.2.1 Linear vs. Binary\n│   │   ├─ 3.2.2 Hash‑based search\n│   │   └─ 3.2.3 Interpolation, Exponential search\n│   ├─ 3.3 Recursion & Backtracking\n│   │   ├─ 3.3.1 Tail recursion optimization\n│   │   ├─ 3.3.2 Classic backtracking problems (N‑Queens, Sudoku)\n│   │   └─ 3.3.3 Branch‑and‑Bound\n│   ├─ 3.4 Greedy Algorithms\n│   │   ├─ 3.4.1 Activity selection, Huffman coding\n│   │   ├─ 3.4.2 Coin change (canonical vs. non‑canonical)\n│   │   └─ 3.4.3 Proof of optimality (exchange argument)\n│   ├─ 3.5 Divide & Conquer\n│   │   ├─ 3.5.1 Merge Sort, Quick Sort\n│   │   ├─ 3.5.2 Binary Search, Strassen multiplication\n│   │   └─ 3.5.3 Master Theorem\n│   ├─ 3.6 Dynamic Programming\n│   │   ├─ 3.6.1 Memoization vs. Tabulation\n│   │   ├─ 3.6.2 Classic DP problems (Fibonacci, LCS, Knapsack)\n│   │   └─ 3.6.3 State compression, 0‑1 BFS\n│   ├─ 3.7 Graph Algorithms\n│   │   ├─ 3.7.1 Shortest Path (Dijkstra, Bellman‑Ford)\n│   │   ├─ 3.7.2 Minimum Spanning Tree (Kruskal, Prim)\n│   │   ├─ 3.7.3 All‑Pairs Shortest Path (Floyd‑Warshall)\n│   │   ├─ 3.7.4 Network Flow (Ford‑Fulkerson, Edmonds‑Karp)\n│   │   └─ 3.7.5 Matching (Hungarian, Hopcroft‑Karp)\n│   ├─ 3.8 Randomized Algorithms\n│   │   ├─ 3.8.1 Randomized QuickSort\n│   │   ├─ 3.8.2 Monte Carlo vs. Las Vegas\n│   │   └─ 3.8.3 Randomized data structures (Skip List, Treap)\n│   └─ 3.9 Approximation & Heuristics\n│",
+      "timestamp": "2026-09-05T10:57:34.707Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "2e3f1263-27bf-41a9-ab20-d075a1656e25",
+      "messageId": "msg_1788607301709_user",
+      "userId": "akhilshah179_gmail_com",
+      "role": "user",
+      "content": "Explain the concept of replication",
+      "timestamp": "2026-09-05T11:21:41.709Z",
+      "metadata": {}
+    },
+    {
+      "chatId": "2e3f1263-27bf-41a9-ab20-d075a1656e25",
+      "messageId": "msg_1788607305068_assistant",
+      "userId": "akhilshah179_gmail_com",
+      "role": "assistant",
+      "content": "# 📚 What Is Replication?\n\nReplication is a **technique for copying data** from one location (the *source*) to one or more other locations (the *targets*).  \nIt’s used to:\n\n- **Increase availability** – if one node fails, others still have the data.  \n- **Improve read performance** – users can read from a nearby replica.  \n- **Provide fault‑tolerance** – data is not lost if a node crashes.\n\n---\n\n## 🔑 Key Concepts\n\n| Term | What It Means |\n|------|---------------|\n| **Primary (Master)** | The original source of truth. |\n| **Replica (Slave)** | A copy that stays in sync with the primary. |\n| **Synchronous Replication** | Replicas are updated *before* the primary commits. Guarantees consistency but can be slower. |\n| **Asynchronous Replication** | Replicas are updated *after* the primary commits. Faster but may lag behind. |\n| **Consistency Model** | Rules that define how up‑to‑date replicas must be (e.g., *strong* vs. *eventual* consistency). |\n| **Write‑Through vs. Write‑Behind** | Whether writes go to the cache (or replica) immediately or are delayed. |\n\n---\n\n## 📖 How It Works (Simplified Flow)\n\n1. **Client writes** → Primary receives the write.  \n2. **Primary processes** → Updates its own data store.  \n3. **Replication step**  \n   * *Synchronous:* Primary waits for all replicas to acknowledge.  \n   * *Asynchronous:* Primary sends the update to replicas in the background.  \n4. **Replicas apply** → Each replica updates its local copy.  \n5. **Client receives** → Write is acknowledged once the primary (and optionally replicas) confirm.\n\n---\n\n## ⚙️ Example: A Simple In‑Memory Replication\n\n```python\nclass Primary:\n    def __init__(self):\n        self.data = {}\n        self.replicas = []\n\n    def register_replica(self, replica):\n        self.replicas.append(replica)\n\n    def write(self, key, value):\n        # 1. Update primary\n        self.data[key] = value\n        # 2. Replicate to all replicas (async)\n        for r in self.replicas:\n            r.apply_update(key, value)\n\nclass Replica:\n    def __init__(self):\n        self.data = {}\n\n    def apply_update(self, key, value):\n        self.data[key] = value\n```\n\n*Notice*: The primary doesn’t wait for replicas to finish (`apply_update` runs immediately). That’s **asynchronous replication**.\n\n---\n\n## 🧩 Why Replication Matters in DSA\n\n- **Distributed Algorithms**: Many algorithms assume data is replicated across nodes (e.g., Paxos, Raft).  \n- **Fault‑Tolerant Structures**: Understanding replication helps you design data structures that survive node failures.  \n- **Performance Analysis**: Replication introduces trade‑offs between latency, throughput, and consistency—key when evaluating algorithm efficiency.\n\n---\n\n## 🚀 Takeaway\n\n- **Replication** = *Copying data to multiple places for reliability and performance.*  \n- **Synchronous** = *Consistent but slower.*  \n- **Asynchronous** = *Fast but may be temporarily out of sync.*  \n- Mastering replication concepts gives you a solid foundation for **distributed data structures** and **fault‑tolerant algorithms**.\n\nKeep practicing by simulating both sync and async replication in a small project—this hands‑on experience will cement the theory!",
+      "timestamp": "2026-09-05T11:21:45.068Z",
+      "metadata": {}
+    }
+  ],
+  "studymate_files": [
+    {
+      "fileId": "30be1987-045d-48ce-96f3-5b217fea2702",
+      "userId": "user_summary_alice",
+      "subjectName": "Machine Learning",
+      "originalName": "neural_networks_intro.pdf",
+      "storedName": "30be1987-045d-48ce-96f3-5b217fea2702_neural_networks_intro.pdf",
+      "storedPath": "C:\\Users\\Akhil Shah\\Downloads\\Projects\\MindScape\\backend\\uploads\\user_summary_alice\\Machine_Learning\\30be1987-045d-48ce-96f3-5b217fea2702_neural_networks_intro.pdf",
+      "mimeType": "application/pdf",
+      "size": 313,
+      "storageType": "local",
+      "uploadedAt": "2026-09-05T08:44:17.278Z",
+      "status": "ready"
+    },
+    {
+      "fileId": "fe21cd86-9602-4166-9586-eb88aa288b72",
+      "userId": "user_summary_alice",
+      "subjectName": "Machine Learning",
+      "originalName": "neural_networks_intro.pdf",
+      "storedName": "fe21cd86-9602-4166-9586-eb88aa288b72_neural_networks_intro.pdf",
+      "storedPath": "C:\\Users\\Akhil Shah\\Downloads\\Projects\\MindScape\\backend\\uploads\\user_summary_alice\\Machine_Learning\\fe21cd86-9602-4166-9586-eb88aa288b72_neural_networks_intro.pdf",
+      "mimeType": "application/pdf",
+      "size": 313,
+      "storageType": "local",
+      "uploadedAt": "2026-09-05T08:44:35.278Z",
+      "status": "ready"
+    },
+    {
+      "fileId": "fd6645e6-4276-4e2a-b36e-2ebab4b5a4fd",
+      "userId": "akhilshah179_gmail_com",
+      "subjectName": "IR",
+      "originalName": "Akhil_week 7_report.pdf",
+      "storedName": "fd6645e6-4276-4e2a-b36e-2ebab4b5a4fd_Akhil_week_7_report.pdf",
+      "storedPath": "C:\\Users\\Akhil Shah\\Downloads\\Projects\\MindScape\\backend\\uploads\\akhilshah179_gmail_com\\IR\\fd6645e6-4276-4e2a-b36e-2ebab4b5a4fd_Akhil_week_7_report.pdf",
+      "mimeType": "application/pdf",
+      "size": 175131,
+      "storageType": "local",
+      "uploadedAt": "2026-09-05T10:02:00.872Z",
+      "status": "ready"
+    },
+    {
+      "fileId": "test_sample_pdf_id_101",
+      "userId": "test_user_phase_a",
+      "subjectName": "Computer Science",
+      "originalName": "DataStructures.pdf",
+      "storedName": "DataStructures.pdf",
+      "size": 2048,
+      "mimeType": "application/pdf",
+      "status": "ready",
+      "uploadedAt": "2026-09-05T11:19:32.589Z"
+    }
+  ],
+  "studymate_summaries": [
+    {
+      "summaryId": "4a46058f-26d3-41f6-8cce-cc6ddf5c8965",
+      "fileId": "fd6645e6-4276-4e2a-b36e-2ebab4b5a4fd",
+      "userId": "akhilshah179_gmail_com",
+      "fileName": "Akhil_week 7_report.pdf",
+      "subjectName": "IR",
+      "summary": "# 📚 Study Summary: Week 7 Internship at Apptech ASIA\n\n## 📌 **Overview**\nThis document details the final week (Week 7) of the Summer Internship 2026 at **Apptech ASIA**, specifically within the **Research & Development** department. Unlike previous weeks focused on hands-on development, this week was dedicated to **research and exploration** of emerging technologies. The intern, supervised by **Pathik Patel**, investigated **Next.js**, **TypeScript**, **AWS Lambda**, and **Web Performance/Accessibility**. The week concluded with a team presentation of findings, a final performance review, and the formal closure of the internship.\n\n## 💡 **Core Concepts & Key Points**\n\n*   **Next.js Exploration**:\n    *   Studied the differences between **Next.js** and plain **React**.\n    *   Focused on why companies prefer Next.js for **fast** and **SEO-friendly** web applications.\n    *   Key concepts learned: **File-based routing**, **Server-Side Rendering (SSR)**, and **Static Site Generation (SSG)**.\n    *   Created a sample project to practice pages, routing, and layout components.\n\n*   **TypeScript Fundamentals**:\n    *   Learned why **TypeScript** is preferred over plain **JavaScript** (early error detection via static typing).\n    *   Practiced converting JavaScript functions and React components into TypeScript.\n    *   Understood the benefits of static typing for maintaining and debugging large codebases.\n\n*   **Serverless Architecture (AWS Lambda)**:\n    *   Explored the basics of **AWS Lambda** and **serverless functions**.\n    *   Analyzed scenarios where companies choose serverless solutions over traditional backend servers.\n\n*   **Web Performance & Accessibility**:\n    *   Studied factors affecting **page load speed** and their impact on user experience and search engine ranking.\n    *   Used **Google Lighthouse** to audit the **StudyMate platform** and the **Apptech ASIA portfolio website**.\n    *   Learned optimization techniques: **WebP format**, **lazy loading**, and asset compression.\n    *   Reviewed accessibility guidelines: **Color contrast**, **alt text**, and **keyboard navigation**.\n\n*   **Professional Communication & Closure**:\n    *   Compiled research into a summary document and delivered a presentation to the team.\n    *   Received positive feedback on the clarity and usefulness of the research.\n    *   Completed the final internship review, submitted deliverables, and received the **completion certificate**.\n\n## 📖 **Definitions & Terminology**\n\n*   **Next.js**: A React framework that enhances development with features like file-based routing and server-side rendering to improve performance and SEO.\n*   **TypeScript**: A typed superset of JavaScript that helps catch errors early by adding types to variables, functions, and components.\n*   **Serverless Functions (AWS Lambda)**: Cloud computing services that run code in response to events without the need for managing servers; chosen for specific scalability and cost-efficiency needs.\n*   **Google Lighthouse**: An open-source, automated tool for improving the quality of web pages, used here to audit performance, accessibility, and best practices.\n*   **Static Site Generation (SSG)**: A method of building websites where pages are generated at build time, resulting in faster load times.\n*   **Lazy Loading**: A technique to improve page load speed by deferring the loading of non-critical resources (like images) until they are needed.\n\n## ⚙️ **Methods, Formulas & Examples**\n\n*   **Performance Audit Method**:\n    *   **Tool**: Google Lighthouse.\n    *   **Targets**: StudyMate platform and Apptech ASIA portfolio website.\n    *   **Metrics Checked**: Performance score, Accessibility, and Best Practices.\n    *   **Output**: A report listing audit results and specific suggestions for improvement.\n\n*   **Code Conversion Practice**:\n    *   **Process**: Converting simple **JavaScript** functions and **React** components into **TypeScript**.\n    *   **Goal**: To understand syntax differences and the practical benefits of static typing in professional environments.\n\n*   **Research Documentation**:\n    *   **Process**: Compiling notes on Next.js, TypeScript, AWS Lambda, and Web Performance into a clean, easy-to-read summary document.\n    *   **Deliverable**: A short presentation covering key learnings, simple examples, and technology recommendations for future company projects.\n\n## 🎯 **Key Takeaways & Summary**\n\n*   **Self-Directed Learning**: Week 7 emphasized the importance of independent research skills (reading documentation, watching tutorials) as a critical competency for developers.\n*   **Technology Evolution**: The internship highlighted how frameworks like **Next.js** evolve to make development faster and more efficient, and how **TypeScript** ensures code quality in large-scale projects.\n*   **Holistic Web Development**: The Lighthouse audit reinforced the need to view websites not just as functional products, but as **fast**, **accessible**, and **user-friendly** experiences.\n*   **Successful Conclusion**: The internship at Apptech ASIA concluded successfully with positive feedback, a completion certificate, and a strong foundation of real-world skills ranging from HTML/CSS to cloud deployment and AI-powered platforms.",
+      "status": "completed",
+      "createdAt": "2026-09-05T10:09:25.249Z",
+      "updatedAt": "2026-09-05T10:09:25.252Z"
+    }
+  ],
+  "studymate_ai_memory": [
+    {
+      "userId": "test_integration_user_1788603285176",
+      "memoryKey": "learning_level",
+      "value": "beginner",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:15:06.240Z"
+    },
+    {
+      "userId": "test_integration_user_1788603285176",
+      "memoryKey": "learning_topic",
+      "value": "computer_science_fundamentals",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:15:07.636Z"
+    },
+    {
+      "userId": "test_integration_user_1788603285176",
+      "memoryKey": "preferred_explanation_style",
+      "value": "simple_analogies_and_real_world_examples",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:15:09.659Z"
+    },
+    {
+      "userId": "akhilshah179_gmail_com",
+      "memoryKey": "learning_goal",
+      "value": "Mastering Data Structures and Algorithms (DSA)",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:21:51.416Z"
+    },
+    {
+      "userId": "bench_user_1788604251922",
+      "memoryKey": "academic_interest",
+      "value": "SQL databases and performance optimization",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:30:59.254Z"
+    },
+    {
+      "userId": "bench_user_1788604251922",
+      "memoryKey": "learning_topic",
+      "value": "SQL indexing benefits and trade-offs",
+      "source": "auto",
+      "updatedAt": "2026-09-05T10:31:00.673Z"
+    },
+    {
+      "userId": "test_user_phase_a",
+      "memoryKey": "target_exam_date",
+      "value": "December 2026",
+      "source": "manual",
+      "updatedAt": "2026-09-05T11:19:28.269Z"
+    }
+  ],
+  "studymate_quizzes": [
+    {
+      "quizId": "a1de3b7f-d066-4ece-9fd2-21210921edb8",
+      "fileId": "test_sample_pdf_id_101",
+      "userId": "test_user_phase_a",
+      "fileName": "DataStructures.pdf",
+      "subjectName": "Computer Science",
+      "questions": [
+        {
+          "question": "Which data structure stores elements in contiguous memory locations?",
+          "options": [
+            "Array",
+            "Linked list",
+            "Stack",
+            "Queue"
+          ],
+          "answer": 0,
+          "explanation": "An array stores its elements in contiguous memory locations."
+        },
+        {
+          "question": "What does each node in a linked list contain?",
+          "options": [
+            "Data and a reference to the next node",
+            "Data and a reference to the previous node",
+            "Only data",
+            "Only a reference to the next node"
+          ],
+          "answer": 0,
+          "explanation": "Each node in a linked list holds data and a reference to the next node."
+        },
+        {
+          "question": "Which principle does a stack follow?",
+          "options": [
+            "Last In First Out (LIFO)",
+            "First In First Out (FIFO)",
+            "Priority order",
+            "Random access"
+          ],
+          "answer": 0,
+          "explanation": "A stack operates on the Last In First Out (LIFO) principle."
+        },
+        {
+          "question": "Which principle does a queue follow?",
+          "options": [
+            "First In First Out (FIFO)",
+            "Last In First Out (LIFO)",
+            "Priority order",
+            "Random access"
+          ],
+          "answer": 0,
+          "explanation": "A queue operates on the First In First Out (FIFO) principle."
+        },
+        {
+          "question": "Which data structure represents hierarchical data?",
+          "options": [
+            "Trees",
+            "Graphs",
+            "Arrays",
+            "Stacks"
+          ],
+          "answer": 0,
+          "explanation": "Trees represent hierarchical data structures."
+        }
+      ],
+      "createdAt": "2026-09-05T11:19:40.010Z",
+      "updatedAt": "2026-09-05T11:19:40.010Z"
+    }
+  ],
+  "studymate_scores": [
+    {
+      "id": "a80223ef-51c2-44c5-9970-8d7cfd90aadb",
+      "scoreId": "a80223ef-51c2-44c5-9970-8d7cfd90aadb",
+      "userId": "test_user_phase_a",
+      "fileId": "test_sample_pdf_id_101",
+      "subjectName": "Computer Science",
+      "fileName": "DataStructures.pdf",
+      "score": 4,
+      "total": 5,
+      "pct": 80,
+      "answers": [
+        {
+          "selected": 0,
+          "correct": true
+        },
+        {
+          "selected": 1,
+          "correct": true
+        },
+        {
+          "selected": 0,
+          "correct": false
+        }
+      ],
+      "wrongTopics": [],
+      "date": "2026-09-05",
+      "timestamp": "2026-09-05T11:19:46.067Z"
     }
   ]
 }

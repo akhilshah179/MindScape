@@ -2,8 +2,9 @@ import { getProblems, getProblemById } from '../services/problemsData.js'
 import { runCode as judge0Run, runTestCases, getLanguageId, getVerdict } from '../services/judge0Service.js'
 import { reviewCode, generateHint, debugCode, generateInterviewQuestions, conductMockInterview } from '../services/aiReviewService.js'
 import { awardXP, updateStreak, getProfile, updateLanguageUsage, updateHeatmap, XP_REWARDS } from '../services/gamificationService.js'
+import { updateContestScore } from './contestController.js'
 import dynamoDb from '../config/dynamoDb.js'
-import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import crypto from 'crypto'
 
 const SUBMISSIONS_TABLE = 'studymate_submissions'
@@ -84,7 +85,7 @@ export const executeCode = async (req, res) => {
 // POST /submit — run against ALL test cases, save submission, award XP
 export const submitCode = async (req, res) => {
   try {
-    const { userId, problemId, language, code } = req.body
+    const { userId, problemId, language, code, contestId } = req.body
 
     if (!userId || !problemId || !language || !code) {
       return res.status(400).json({ error: 'userId, problemId, language, and code are required' })
@@ -129,48 +130,70 @@ export const submitCode = async (req, res) => {
     }))
 
     let gamificationResult = null
+    let contestResult = null
 
     // Award XP and update stats on Accepted
     if (verdict === 'Accepted') {
-      const xpAmount = XP_REWARDS[problem.difficulty] || 50
-
-      gamificationResult = await awardXP(userId, xpAmount, `Solved ${problem.title}`, {
-        problemId,
-        difficulty: problem.difficulty,
-        language
-      })
-
-      // Update difficulty-specific solve count
-      const profile = await getProfile(userId)
-      const diffKey = `${problem.difficulty.toLowerCase()}Solved`
-      const updateExpr = `SET totalSolved = if_not_exists(totalSolved, :zero) + :one, ${diffKey} = if_not_exists(${diffKey}, :zero) + :one, updatedAt = :now`
-
-      await dynamoDb.send(new (await import('@aws-sdk/lib-dynamodb')).UpdateCommand({
-        TableName: 'studymate_gamification',
-        Key: { userId },
-        UpdateExpression: updateExpr,
-        ExpressionAttributeValues: {
-          ':zero': 0,
-          ':one': 1,
-          ':now': new Date().toISOString()
+      // 1. If part of an active contest, update contest score & leaderboard
+      if (contestId) {
+        try {
+          contestResult = await updateContestScore(contestId, userId, problemId, problem.difficulty)
+        } catch (cErr) {
+          console.warn('Contest score update failed:', cErr.message)
         }
-      }))
+      }
+
+      // 2. Prevent duplicate XP awards for repeatedly submitting already-solved problems
+      const prevSubmissions = await dynamoDb.send(new QueryCommand({
+        TableName: SUBMISSIONS_TABLE,
+        KeyConditionExpression: 'userId = :uid',
+        ExpressionAttributeValues: { ':uid': userId }
+      })).catch(() => ({ Items: [] }))
+
+      const alreadySolved = (prevSubmissions.Items || []).some(s =>
+        s.problemId === problemId && s.verdict === 'Accepted' && s.submissionId !== submissionId
+      )
+
+      if (!alreadySolved) {
+        const xpAmount = XP_REWARDS[problem.difficulty] || 50
+
+        gamificationResult = await awardXP(userId, xpAmount, `Solved ${problem.title}`, {
+          problemId,
+          difficulty: problem.difficulty,
+          language
+        })
+
+        // Update difficulty-specific solve count
+        const diffKey = `${problem.difficulty.toLowerCase()}Solved`
+        const updateExpr = `SET totalSolved = if_not_exists(totalSolved, :zero) + :one, ${diffKey} = if_not_exists(${diffKey}, :zero) + :one, updatedAt = :now`
+
+        await dynamoDb.send(new UpdateCommand({
+          TableName: 'studymate_gamification',
+          Key: { userId },
+          UpdateExpression: updateExpr,
+          ExpressionAttributeValues: {
+            ':zero': 0,
+            ':one': 1,
+            ':now': new Date().toISOString()
+          }
+        }))
+      }
 
       // Check if fast solve (under 5 minutes)
       if (timeTaken < 300000) {
-        await dynamoDb.send(new (await import('@aws-sdk/lib-dynamodb')).UpdateCommand({
+        await dynamoDb.send(new UpdateCommand({
           TableName: 'studymate_gamification',
           Key: { userId },
           UpdateExpression: 'SET fastSolve = :fs',
           ExpressionAttributeValues: { ':fs': true }
-        }))
+        })).catch(() => {})
       }
 
       // Update streak, heatmap, and language usage
       await Promise.all([
-        updateStreak(userId),
-        updateHeatmap(userId),
-        updateLanguageUsage(userId, language)
+        updateStreak(userId).catch(() => {}),
+        updateHeatmap(userId).catch(() => {}),
+        updateLanguageUsage(userId, language).catch(() => {})
       ])
     }
 
@@ -181,7 +204,8 @@ export const submitCode = async (req, res) => {
       passedTests: results.passedTests,
       results: results.results,
       timeTaken,
-      gamification: gamificationResult
+      gamification: gamificationResult,
+      contest: contestResult
     })
   } catch (err) {
     console.error('Submit Code Error:', err.message)

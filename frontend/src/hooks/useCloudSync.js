@@ -8,7 +8,10 @@ export function useCloudSync(userId) {
 
     // Load from cloud on mount
     useEffect(() => {
-        if (!userId) return
+        if (!userId) {
+            setHasLoaded(true)
+            return
+        }
 
         const loadFromCloud = async () => {
             try {

@@ -159,17 +159,13 @@ export default function AIChatPage() {
         const text = input.trim()
         if (!text || isSending) return
 
-        // If no active chat, create one first
-        if (!activeChatId) {
-            const newChatId = await createChat()
-            if (!newChatId) return
-            // Wait a tick for state to update
-            await new Promise(r => setTimeout(r, 100))
-        }
+        const contextText = typeof pdfContext === 'string' ? pdfContext : pdfContext?.text || null
+        const fileId = typeof pdfContext === 'object' ? pdfContext?.fileId : null
+        const fileName = typeof pdfContext === 'object' ? pdfContext?.fileName : null
 
         setInput('')
-        await sendMessage(text, pdfContext)
         if (pdfContext) setPdfContext(null)
+        await sendMessage(text, contextText, fileId, fileName)
     }
 
     const handleKeyDown = (e) => {
@@ -286,9 +282,11 @@ export default function AIChatPage() {
             {pdfContext && (
                 <div className="px-4 sm:px-6">
                     <div className="max-w-3xl mx-auto">
-                        <div className="flex items-center gap-2 px-3 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl mb-2">
+                        <div className="flex items-center gap-2 px-3.5 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl mb-2">
                             <span className="text-xs">📄</span>
-                            <span className="text-xs text-violet-300 font-medium flex-1">PDF context attached</span>
+                            <span className="text-xs text-violet-300 font-medium flex-1 truncate">
+                                Context attached: {typeof pdfContext === 'object' && pdfContext.fileName ? pdfContext.fileName : 'Document text'}
+                            </span>
                             <button onClick={() => setPdfContext(null)} className="text-white/30 hover:text-white/60 text-xs">✕</button>
                         </div>
                     </div>
