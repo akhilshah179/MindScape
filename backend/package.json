@@ -1,0 +1,30 @@
+{
+  "name": "mindscape-backend",
+  "version": "1.0.0",
+  "description": "MindScape API",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch-path=controllers --watch-path=routes --watch-path=services --watch-path=config --watch-path=middleware --watch-path=server.js server.js",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node tests/api.integration.mjs",
+    "test:judge0": "node tests/judge0.integration.mjs",
+    "db:create-tables": "node scripts/create-dynamo-tables.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "livekit-server-sdk": "^2.15.1",
+    "multer": "^2.3.0",
+    "pdfjs-dist": "^5.7.284"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
