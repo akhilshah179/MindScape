@@ -1,641 +1,255 @@
-import dynamoDb from '../config/dynamoDb.js'
-import { PutCommand, GetCommand, QueryCommand, DeleteCommand, ScanCommand } from "@aws-sdk/lib-dynamodb"
-import { saveFile, getStoredFilePath, getFileStream, deleteStoredFile } from '../services/storageService.js'
-import { generateDocumentSummary, generateDocumentQuiz } from '../services/aiService.js'
 import crypto from 'crypto'
+import { PutCommand, GetCommand, QueryCommand, DeleteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import dynamoDb from '../config/dynamoDb.js'
+import {
+  objectKeys, putObject, getObjectStream, getObjectBuffer, deleteObjects, legacyLocalPath, openLocalFile, STORAGE_MODE
+} from '../services/storageService.js'
+import { extractPdfText, chunkPages, isPdfBuffer } from '../services/documentService.js'
+import { generateDocumentSummary, generateDocumentQuiz } from '../services/aiService.js'
+import { withLock } from '../services/lock.js'
+import { HttpError } from '../middleware/http.js'
 
-const TABLE_FILES = 'studymate_files'
-const TABLE_SUMMARIES = 'studymate_summaries'
-const TABLE_QUIZZES = 'studymate_quizzes'
-const TABLE_SCORES = 'studymate_scores'
-const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25 MB
+const T_FILES = 'studymate_files'
+const T_SUMMARIES = 'studymate_summaries'
+const T_QUIZZES = 'studymate_quizzes'
+const T_SCORES = 'studymate_scores'
+export const MAX_FILE_SIZE = 25 * 1024 * 1024
 
-/**
- * Helper to get authenticated userId from request
- */
-function getRequestUserId(req) {
-    return req.headers['x-user-id'] || req.body?.userId || req.query?.userId || null
+const publicFile = (f) => ({
+  fileId: f.fileId, subjectName: f.subjectName, originalName: f.originalName, name: f.originalName,
+  size: f.size, mimeType: f.mimeType, uploadedAt: f.uploadedAt, status: f.status || 'ready',
+  numPages: f.numPages ?? null, hasText: f.textChars == null ? null : f.textChars > 30,
+  storage: f.storageType, hasSummary: Boolean(f.hasSummary), hasQuiz: Boolean(f.hasQuiz)
+})
+
+/** Ownership is enforced by the key itself: (userId, fileId). Another user's file is simply "not found". */
+export async function getOwnedFile(userId, fileId) {
+  const { Item } = await dynamoDb.send(new GetCommand({ TableName: T_FILES, Key: { userId, fileId: String(fileId) } }))
+  if (!Item) throw new HttpError(404, 'File not found.')
+  return Item
 }
 
 /**
- * Upload a PDF file
+ * Text chunks for a file, extracting lazily for files uploaded before server-side extraction.
+ * Serialized per file so concurrent summary/quiz/chat requests extract only once.
  */
+export function getFileChunks(file) {
+  return withLock(`text:${file.fileId}`, async () => {
+    const keys = objectKeys(file.userId, file.fileId)
+    const cached = await getObjectBuffer(keys.text).catch(() => null)
+    if (cached) return JSON.parse(cached.toString('utf8')).chunks
+
+    const pdf = await readPdfBuffer(file)
+    if (!pdf) throw new HttpError(404, 'The PDF content is missing from storage.')
+    const { pages, numPages } = await extractPdfText(pdf)
+    const chunks = chunkPages(pages)
+    await putObject(keys.text, Buffer.from(JSON.stringify({ numPages, chunks })), 'application/json')
+    const textChars = chunks.reduce((s, c) => s + c.text.length, 0)
+    await dynamoDb.send(new UpdateCommand({
+      TableName: T_FILES, Key: { userId: file.userId, fileId: file.fileId },
+      UpdateExpression: 'SET numPages = :n, textChars = :c', ExpressionAttributeValues: { ':n': numPages, ':c': textChars }
+    }))
+    return chunks
+  })
+}
+
+async function readPdfBuffer(file) {
+  const legacy = legacyLocalPath(file)
+  if (legacy) {
+    const r = await openLocalFile(legacy)
+    if (!r || r.invalidRange) return null
+    const parts = []
+    for await (const c of r.stream) parts.push(c)
+    return Buffer.concat(parts)
+  }
+  return getObjectBuffer(file.objectKey || objectKeys(file.userId, file.fileId).pdf)
+}
+
+// POST /files/upload  (multipart: file, subjectName)
 export const uploadFile = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
+  const userId = req.user.userId
+  if (!req.file) throw new HttpError(400, 'No file was uploaded. Please select a PDF file.')
+  const { originalname, buffer, size } = req.file
+  if (size > MAX_FILE_SIZE) throw new HttpError(413, 'File is too large. Maximum size is 25 MB.')
+  // Check the actual bytes; MIME type and extension are client-controlled.
+  if (!isPdfBuffer(buffer)) throw new HttpError(400, 'Invalid file. Only PDF documents are allowed.')
 
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file was uploaded. Please select a PDF file.' })
-        }
+  const subjectName = String(req.body.subjectName || 'General').trim().slice(0, 80) || 'General'
+  const originalName = String(originalname || 'document.pdf').replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 200)
+  const fileId = crypto.randomUUID()
+  const keys = objectKeys(userId, fileId)
 
-        const { originalname, mimetype, buffer, size } = req.file
-        const isPdfMime = mimetype === 'application/pdf'
-        const isPdfExt = originalname.toLowerCase().endsWith('.pdf')
+  // Extract first: corrupt/encrypted PDFs are rejected before anything is stored.
+  const { pages, numPages } = await extractPdfText(buffer)
+  const chunks = chunkPages(pages)
+  const textChars = chunks.reduce((s, c) => s + c.text.length, 0)
 
-        if (!isPdfMime && !isPdfExt) {
-            return res.status(400).json({ error: 'Invalid file type. Only PDF documents (.pdf) are allowed.' })
-        }
-
-        if (size > MAX_FILE_SIZE) {
-            return res.status(400).json({ error: `File is too large. Maximum allowed size is 25MB (Selected file is ${(size / (1024 * 1024)).toFixed(2)}MB).` })
-        }
-
-        const subjectName = req.body.subjectName || 'General'
-
-        // 1. Save file to storage
-        const storageResult = await saveFile({
-            fileBuffer: buffer,
-            userId,
-            subjectName,
-            originalName: originalname,
-            mimeType: 'application/pdf'
-        })
-
-        // 2. Persist metadata to database
-        const fileRecord = {
-            fileId: storageResult.fileId,
-            userId,
-            subjectName,
-            originalName: originalname,
-            storedName: storageResult.storedName,
-            storedPath: storageResult.storedPath,
-            mimeType: 'application/pdf',
-            size,
-            storageType: storageResult.storageType,
-            uploadedAt: new Date().toISOString(),
-            status: 'ready'
-        }
-
-        await dynamoDb.send(new PutCommand({
-            TableName: TABLE_FILES,
-            Item: fileRecord
-        }))
-
-        res.status(201).json({
-            success: true,
-            message: 'PDF uploaded successfully.',
-            file: {
-                fileId: fileRecord.fileId,
-                userId: fileRecord.userId,
-                subjectName: fileRecord.subjectName,
-                originalName: fileRecord.originalName,
-                size: fileRecord.size,
-                mimeType: fileRecord.mimeType,
-                uploadedAt: fileRecord.uploadedAt,
-                status: fileRecord.status
-            }
-        })
-    } catch (err) {
-        console.error('File Upload Error:', err)
-        res.status(500).json({ error: err.message || 'Failed to process file upload.' })
+  await putObject(keys.pdf, buffer, 'application/pdf', { userId, fileId, originalName, subjectName })
+  try {
+    await putObject(keys.text, Buffer.from(JSON.stringify({ numPages, chunks })), 'application/json')
+    const record = {
+      userId, fileId, subjectName, originalName, mimeType: 'application/pdf', size,
+      storageType: STORAGE_MODE, objectKey: keys.pdf, numPages, textChars,
+      uploadedAt: new Date().toISOString(), status: 'ready'
     }
+    await dynamoDb.send(new PutCommand({ TableName: T_FILES, Item: record }))
+    res.status(201).json({
+      success: true,
+      message: textChars > 30 ? 'PDF uploaded.' : 'PDF uploaded, but it contains no selectable text (scanned images). AI features need OCR for this file.',
+      file: publicFile(record)
+    })
+  } catch (err) {
+    // Don't leave orphaned objects if metadata could not be saved.
+    await deleteObjects([keys.pdf, keys.text]).catch(e => console.error('[files] cleanup failed:', e.message))
+    throw err
+  }
 }
 
-/**
- * List files for the authenticated user (optionally filtered by subjectName)
- */
+// GET /files[?subjectName=]
 export const getFiles = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        const { subjectName } = req.query
-
-        let files = []
-        try {
-            // Attempt DynamoDB Query
-            const queryParams = {
-                TableName: TABLE_FILES,
-                KeyConditionExpression: "userId = :uid",
-                ExpressionAttributeValues: { ":uid": userId }
-            }
-            if (subjectName) {
-                queryParams.FilterExpression = "subjectName = :subj"
-                queryParams.ExpressionAttributeValues[":subj"] = subjectName
-            }
-            const data = await dynamoDb.send(new QueryCommand(queryParams))
-            files = data.Items || []
-        } catch (queryErr) {
-            // Fallback scan if GSI / Key schema differs
-            const scanData = await dynamoDb.send(new ScanCommand({
-                TableName: TABLE_FILES
-            }))
-            files = (scanData.Items || []).filter(f => f.userId === userId && (!subjectName || f.subjectName === subjectName))
-        }
-
-        // Sort descending by upload date
-        files.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
-
-        res.json({
-            success: true,
-            files: files.map(f => ({
-                fileId: f.fileId,
-                userId: f.userId,
-                subjectName: f.subjectName,
-                originalName: f.originalName || f.fileName,
-                name: f.originalName || f.fileName,
-                size: f.size,
-                mimeType: f.mimeType,
-                uploadedAt: f.uploadedAt,
-                status: f.status || 'ready'
-            }))
-        })
-    } catch (err) {
-        console.error('Fetch Files Error:', err)
-        res.status(500).json({ error: 'Failed to retrieve files.' })
-    }
+  const params = { TableName: T_FILES, KeyConditionExpression: 'userId = :uid', ExpressionAttributeValues: { ':uid': req.user.userId } }
+  if (req.query.subjectName) {
+    params.FilterExpression = 'subjectName = :s'
+    params.ExpressionAttributeValues[':s'] = String(req.query.subjectName)
+  }
+  const { Items = [] } = await dynamoDb.send(new QueryCommand(params))
+  Items.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
+  res.json({ success: true, files: Items.map(publicFile) })
 }
 
-/**
- * Get single file metadata
- */
+// GET /files/:fileId
 export const getFileMetadata = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        const data = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = data.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to access this file.' })
-        }
-
-        res.json({
-            success: true,
-            file: {
-                fileId: file.fileId,
-                userId: file.userId,
-                subjectName: file.subjectName,
-                originalName: file.originalName,
-                name: file.originalName,
-                size: file.size,
-                mimeType: file.mimeType,
-                uploadedAt: file.uploadedAt,
-                status: file.status
-            }
-        })
-    } catch (err) {
-        console.error('Get File Metadata Error:', err)
-        res.status(500).json({ error: 'Failed to retrieve file metadata.' })
-    }
+  res.json({ success: true, file: publicFile(await getOwnedFile(req.user.userId, req.params.fileId)) })
 }
 
-/**
- * Stream/view PDF content
- */
+// GET /files/:fileId/content  — streams the PDF with HTTP Range support (pdf.js loads pages on demand)
 export const getFileContent = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const range = req.headers.range
+  const legacy = legacyLocalPath(file)
+  const obj = legacy
+    ? await openLocalFile(legacy, range)
+    : await getObjectStream(file.objectKey || objectKeys(file.userId, file.fileId).pdf, range, file.size)
 
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
+  if (!obj) throw new HttpError(404, 'The PDF content is missing from storage.')
+  if (obj.invalidRange) {
+    res.setHeader('Content-Range', `bytes */${obj.size ?? file.size}`)
+    return res.status(416).end()
+  }
 
-        const data = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = data.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File metadata not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to access this file.' })
-        }
-
-        const storedPath = getStoredFilePath(file)
-        if (!storedPath) {
-            return res.status(404).json({ error: 'Physical PDF file was not found in storage.' })
-        }
-
-        res.setHeader('Content-Type', file.mimeType || 'application/pdf')
-        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName || 'document.pdf')}"`)
-        if (file.size) {
-            res.setHeader('Content-Length', file.size)
-        }
-
-        const stream = getFileStream(file)
-        stream.on('error', (streamErr) => {
-            console.error('File stream error:', streamErr)
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Failed to stream file content.' })
-            }
-        })
-        stream.pipe(res)
-    } catch (err) {
-        console.error('Get File Content Error:', err)
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to retrieve file content.' })
-        }
-    }
+  const disposition = req.query.download === '1' ? 'attachment' : 'inline'
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(file.originalName || 'document.pdf')}`)
+  res.setHeader('Accept-Ranges', 'bytes')
+  res.setHeader('Cache-Control', 'private, max-age=3600')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Length', obj.end - obj.start + 1)
+  if (obj.partial) {
+    res.status(206)
+    res.setHeader('Content-Range', `bytes ${obj.start}-${obj.end}/${obj.size}`)
+  }
+  obj.stream.on('error', (err) => {
+    console.error('[files] stream error:', err.message)
+    res.destroy(err)
+  })
+  req.on('close', () => obj.stream.destroy?.())
+  obj.stream.pipe(res)
 }
 
-/**
- * Delete a file
- */
+// DELETE /files/:fileId
 export const deleteFile = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        const data = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = data.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this file.' })
-        }
-
-        // 1. Delete physical file
-        await deleteStoredFile(file)
-
-        // 2. Delete database file record
-        await dynamoDb.send(new DeleteCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        // 3. Delete associated summary and quiz if any
-        try {
-            await Promise.all([
-                dynamoDb.send(new DeleteCommand({ TableName: TABLE_SUMMARIES, Key: { fileId } })),
-                dynamoDb.send(new DeleteCommand({ TableName: TABLE_QUIZZES, Key: { fileId } }))
-            ])
-        } catch (_) {}
-
-        res.json({
-            success: true,
-            message: 'File deleted successfully.',
-            fileId
-        })
-    } catch (err) {
-        console.error('Delete File Error:', err)
-        res.status(500).json({ error: 'Failed to delete file.' })
-    }
+  const userId = req.user.userId
+  const file = await getOwnedFile(userId, req.params.fileId)
+  const keys = objectKeys(userId, file.fileId)
+  const legacy = legacyLocalPath(file)
+  // Remove stored objects first; if that fails the record stays so the user can retry.
+  await deleteObjects([keys.pdf, keys.text])
+  if (legacy) await import('fs').then(fs => fs.promises.rm(legacy, { force: true }))
+  await Promise.all([
+    dynamoDb.send(new DeleteCommand({ TableName: T_FILES, Key: { userId, fileId: file.fileId } })),
+    dynamoDb.send(new DeleteCommand({ TableName: T_SUMMARIES, Key: { userId, fileId: file.fileId } })),
+    dynamoDb.send(new DeleteCommand({ TableName: T_QUIZZES, Key: { userId, fileId: file.fileId } }))
+  ])
+  res.json({ success: true, fileId: file.fileId })
 }
 
-/**
- * Get existing persistent summary for a file
- */
+// GET /files/:fileId/summary
 export const getFileSummary = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        // 1. Verify file exists and belongs to user
-        const fileData = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = fileData.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to access this summary.' })
-        }
-
-        // 2. Fetch summary record
-        let summaryRecord = null
-        try {
-            const summaryData = await dynamoDb.send(new GetCommand({
-                TableName: TABLE_SUMMARIES,
-                Key: { fileId }
-            }))
-            summaryRecord = summaryData.Item
-        } catch (_) {}
-
-        if (!summaryRecord) {
-            return res.json({
-                success: true,
-                cached: false,
-                summary: null
-            })
-        }
-
-        res.json({
-            success: true,
-            cached: true,
-            summary: {
-                summaryId: summaryRecord.summaryId,
-                fileId: summaryRecord.fileId,
-                userId: summaryRecord.userId,
-                summary: summaryRecord.summary,
-                status: summaryRecord.status || 'completed',
-                createdAt: summaryRecord.createdAt,
-                updatedAt: summaryRecord.updatedAt
-            }
-        })
-    } catch (err) {
-        console.error('Get Summary Error:', err)
-        res.status(500).json({ error: 'Failed to retrieve file summary.' })
-    }
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const { Item } = await dynamoDb.send(new GetCommand({ TableName: T_SUMMARIES, Key: { userId: file.userId, fileId: file.fileId } }))
+  res.json({ success: true, cached: Boolean(Item), summary: Item || null })
 }
 
-/**
- * Generate or retrieve persistent summary for a file
- */
+// POST /files/:fileId/summary  { forceRegenerate? }
 export const generateOrGetFileSummary = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-        const { text, forceRegenerate = false } = req.body
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        // 1. Verify file exists and belongs to user
-        const fileData = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = fileData.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to generate a summary for this file.' })
-        }
-
-        // 2. If not forcing regenerate, check if summary already exists in DB
-        if (!forceRegenerate) {
-            try {
-                const existingData = await dynamoDb.send(new GetCommand({
-                    TableName: TABLE_SUMMARIES,
-                    Key: { fileId }
-                }))
-                if (existingData.Item && existingData.Item.summary) {
-                    return res.json({
-                        success: true,
-                        cached: true,
-                        summary: existingData.Item
-                    })
-                }
-            } catch (_) {}
-        }
-
-        // 3. Validate extracted text
-        const cleanText = (text || '').trim()
-        if (!cleanText || cleanText.length < 30) {
-            return res.status(400).json({
-                error: 'This PDF does not contain extractable text. Scanned or image-based PDFs require OCR.'
-            })
-        }
-
-        // 4. Generate AI summary via aiService
-        const generatedSummary = await generateDocumentSummary(cleanText)
-
-        // 5. Persist summary permanently
-        const summaryRecord = {
-            summaryId: crypto.randomUUID(),
-            fileId,
-            userId,
-            fileName: file.originalName || file.name,
-            subjectName: file.subjectName,
-            summary: generatedSummary,
-            status: 'completed',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-        }
-
-        await dynamoDb.send(new PutCommand({
-            TableName: TABLE_SUMMARIES,
-            Item: summaryRecord
-        }))
-
-        res.json({
-            success: true,
-            cached: false,
-            summary: summaryRecord
-        })
-    } catch (err) {
-        console.error('Generate Summary Error:', err)
-        res.status(500).json({
-            error: err.message || 'Failed to generate PDF summary.'
-        })
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const key = { userId: file.userId, fileId: file.fileId }
+  // Serialize per file: a double-click doesn't trigger two expensive generations.
+  const result = await withLock(`summary:${file.fileId}`, async () => {
+    if (!req.body?.forceRegenerate) {
+      const { Item } = await dynamoDb.send(new GetCommand({ TableName: T_SUMMARIES, Key: key }))
+      if (Item?.summary) return { cached: true, summary: Item }
     }
+    const chunks = await getFileChunks(file)
+    const summary = await generateDocumentSummary(chunks)
+    const now = new Date().toISOString()
+    const record = { ...key, summaryId: crypto.randomUUID(), fileName: file.originalName, subjectName: file.subjectName, summary, status: 'completed', createdAt: now, updatedAt: now }
+    await dynamoDb.send(new PutCommand({ TableName: T_SUMMARIES, Item: record }))
+    await dynamoDb.send(new UpdateCommand({ TableName: T_FILES, Key: key, UpdateExpression: 'SET hasSummary = :t', ExpressionAttributeValues: { ':t': true } }))
+    return { cached: false, summary: record }
+  })
+  res.json({ success: true, ...result })
 }
 
-/**
- * Get existing persistent quiz for a file
- */
+// GET /files/:fileId/quiz
 export const getFileQuiz = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        const fileData = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = fileData.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to access this quiz.' })
-        }
-
-        const quizData = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_QUIZZES,
-            Key: { fileId }
-        }))
-
-        if (!quizData.Item || !quizData.Item.questions) {
-            return res.json({
-                success: true,
-                cached: false,
-                quiz: null
-            })
-        }
-
-        res.json({
-            success: true,
-            cached: true,
-            quiz: quizData.Item
-        })
-    } catch (err) {
-        console.error('Get File Quiz Error:', err)
-        res.status(500).json({ error: 'Failed to retrieve file quiz.' })
-    }
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const { Item } = await dynamoDb.send(new GetCommand({ TableName: T_QUIZZES, Key: { userId: file.userId, fileId: file.fileId } }))
+  res.json({ success: true, cached: Boolean(Item?.questions?.length), quiz: Item?.questions?.length ? Item : null })
 }
 
-/**
- * Generate or retrieve persistent quiz for a file
- */
+// POST /files/:fileId/quiz  { forceRegenerate?, count? }
 export const generateOrGetFileQuiz = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-        const { text, forceRegenerate = false } = req.body
-
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        // 1. Verify file ownership
-        const fileData = await dynamoDb.send(new GetCommand({
-            TableName: TABLE_FILES,
-            Key: { fileId }
-        }))
-
-        const file = fileData.Item
-        if (!file) {
-            return res.status(404).json({ error: 'File not found.' })
-        }
-
-        if (file.userId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You do not have permission to generate a quiz for this file.' })
-        }
-
-        // 2. Return cached quiz if available and not forced
-        if (!forceRegenerate) {
-            try {
-                const existingData = await dynamoDb.send(new GetCommand({
-                    TableName: TABLE_QUIZZES,
-                    Key: { fileId }
-                }))
-                if (existingData.Item && Array.isArray(existingData.Item.questions) && existingData.Item.questions.length > 0) {
-                    return res.json({
-                        success: true,
-                        cached: true,
-                        quiz: existingData.Item
-                    })
-                }
-            } catch (_) {}
-        }
-
-        // 3. Validate extracted text
-        const cleanText = (text || '').trim()
-        if (!cleanText || cleanText.length < 30) {
-            return res.status(400).json({
-                error: 'This PDF does not contain extractable text to generate a quiz.'
-            })
-        }
-
-        // 4. Generate structured 5 MCQ quiz via backend Groq AI
-        const questions = await generateDocumentQuiz(cleanText)
-
-        // 5. Persist quiz permanently
-        const quizRecord = {
-            quizId: crypto.randomUUID(),
-            fileId,
-            userId,
-            fileName: file.originalName || file.name,
-            subjectName: file.subjectName || 'General',
-            questions,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-        }
-
-        await dynamoDb.send(new PutCommand({
-            TableName: TABLE_QUIZZES,
-            Item: quizRecord
-        }))
-
-        res.json({
-            success: true,
-            cached: false,
-            quiz: quizRecord
-        })
-    } catch (err) {
-        console.error('Generate Quiz Error:', err)
-        res.status(500).json({
-            error: err.message || 'Failed to generate quiz.'
-        })
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const key = { userId: file.userId, fileId: file.fileId }
+  const result = await withLock(`quiz:${file.fileId}`, async () => {
+    if (!req.body?.forceRegenerate) {
+      const { Item } = await dynamoDb.send(new GetCommand({ TableName: T_QUIZZES, Key: key }))
+      if (Item?.questions?.length) return { cached: true, quiz: Item }
     }
+    const count = Math.min(Math.max(Number(req.body?.count) || 5, 3), 10)
+    const questions = await generateDocumentQuiz(await getFileChunks(file), count)
+    const now = new Date().toISOString()
+    const record = { ...key, quizId: crypto.randomUUID(), fileName: file.originalName, subjectName: file.subjectName, questions, createdAt: now, updatedAt: now }
+    await dynamoDb.send(new PutCommand({ TableName: T_QUIZZES, Item: record }))
+    await dynamoDb.send(new UpdateCommand({ TableName: T_FILES, Key: key, UpdateExpression: 'SET hasQuiz = :t', ExpressionAttributeValues: { ':t': true } }))
+    return { cached: false, quiz: record }
+  })
+  res.json({ success: true, ...result })
 }
 
-/**
- * Save quiz completion score permanently to database
- */
+// POST /files/:fileId/quiz/score  { answers: number[] }
+// The score is computed on the server from the stored answer key; the client can't inflate it.
 export const saveQuizResult = async (req, res) => {
-    try {
-        const userId = getRequestUserId(req)
-        const { fileId } = req.params
-        const { score, total, pct, answers, wrongTopics, subjectName, fileName } = req.body
+  const file = await getOwnedFile(req.user.userId, req.params.fileId)
+  const { Item: quiz } = await dynamoDb.send(new GetCommand({ TableName: T_QUIZZES, Key: { userId: file.userId, fileId: file.fileId } }))
+  if (!quiz?.questions?.length) throw new HttpError(404, 'No quiz exists for this file.')
+  const answers = Array.isArray(req.body?.answers) ? req.body.answers : null
+  if (!answers || answers.length !== quiz.questions.length) throw new HttpError(400, `answers must be an array of ${quiz.questions.length} option indexes.`)
 
-        if (!userId) {
-            return res.status(401).json({ error: 'Unauthorized: Missing user authentication identity.' })
-        }
-
-        const scoreId = crypto.randomUUID()
-        const now = new Date().toISOString()
-
-        const scoreRecord = {
-            id: scoreId,
-            scoreId,
-            userId,
-            fileId: fileId || null,
-            subjectName: subjectName || 'General',
-            fileName: fileName || 'document.pdf',
-            score: Number(score) || 0,
-            total: Number(total) || 5,
-            pct: pct !== undefined ? Number(pct) : Math.round(((Number(score) || 0) / (Number(total) || 5)) * 100),
-            answers: answers || [],
-            wrongTopics: wrongTopics || [],
-            date: now.slice(0, 10),
-            timestamp: now
-        }
-
-        await dynamoDb.send(new PutCommand({
-            TableName: TABLE_SCORES,
-            Item: scoreRecord
-        }))
-
-        res.status(201).json({
-            success: true,
-            message: 'Quiz score saved permanently.',
-            score: scoreRecord
-        })
-    } catch (err) {
-        console.error('Save Quiz Score Error:', err)
-        res.status(500).json({ error: 'Failed to save quiz score.' })
-    }
+  const graded = quiz.questions.map((q, i) => {
+    const chosen = Number.isInteger(answers[i]) ? answers[i] : null
+    return { question: q.question, chosen, correct: q.answer, isCorrect: chosen === q.answer }
+  })
+  const score = graded.filter(g => g.isCorrect).length
+  const now = new Date().toISOString()
+  const scoreId = `${now}#${crypto.randomUUID()}`
+  const record = {
+    userId: file.userId, scoreId, quizId: quiz.quizId, fileId: file.fileId, fileName: file.originalName,
+    subjectName: file.subjectName, score, total: graded.length, pct: Math.round((score / graded.length) * 100),
+    answers: graded, wrongTopics: graded.filter(g => !g.isCorrect).map(g => g.question.slice(0, 120)),
+    date: now.slice(0, 10), timestamp: now
+  }
+  await dynamoDb.send(new PutCommand({ TableName: T_SCORES, Item: record }))
+  res.status(201).json({ success: true, score: record })
 }
-

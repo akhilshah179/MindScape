@@ -294,7 +294,10 @@ function wrapPython(userCode, meta) {
   const usesLinkedList = needsLinkedList(meta)
   const usesTree = needsTree(meta)
 
-  let preCode = `import sys, json\n`
+  // Lazy annotations keep modern hints like `list[int]` / `Optional[ListNode]` safe on any Python 3.7+.
+  // A user-supplied __future__ import would be a SyntaxError once it's no longer first, so drop it.
+  userCode = userCode.replace(/^\s*from\s+__future__\s+import\s+[^\n]*\n?/gm, '')
+  let preCode = `from __future__ import annotations\nimport sys, json\nfrom typing import *\n`
 
   // Provide base class definitions in case user's code doesn't define them
   if (usesLinkedList) {
@@ -437,7 +440,7 @@ function pythonParseParam(name, type) {
     case 'LinkedList[]': return `${name} = [_buildList(a) for a in json.loads(_readLine())]\n`
     case 'TreeNode': {
       return `_raw_${name} = _readLine()\n` +
-             `_arr_${name} = json.loads(_raw_${name}.replace('null', 'None')) if 'null' in _raw_${name} else json.loads(_raw_${name})\n` +
+             `_arr_${name} = json.loads(_raw_${name})\n` +  // JSON null -> None natively
              `${name} = _buildTree(_arr_${name})\n`
     }
     default:           return `${name} = _readLine()\n`
@@ -857,6 +860,16 @@ export function compareOutputs(actual, expected, returnType, orderIndependent = 
   // Normalize whitespace around JSON structural chars
   const normalize = (s) => s.replace(/\s*([,\[\]{}])\s*/g, '$1').trim()
   if (normalize(a) === normalize(e)) return true
+
+  // Floating point results: compare with tolerance (e.g. 2.5 vs 2.50000)
+  if (returnType === 'double') {
+    const x = Number(a), y = Number(e)
+    if (Number.isFinite(x) && Number.isFinite(y)) return Math.abs(x - y) <= 1e-5 * Math.max(1, Math.abs(y))
+    return false
+  }
+
+  // Booleans: Python prints True/False, others true/false
+  if (returnType === 'bool') return a.toLowerCase() === e.toLowerCase()
 
   // For order-independent results (like 3Sum, Group Anagrams)
   if (orderIndependent && (returnType === 'int[][]' || returnType === 'string[][]')) {

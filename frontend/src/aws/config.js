@@ -1,3 +1,5 @@
+// Amplify is used only for Cognito sign-in (VITE_AUTH_PROVIDER=cognito).
+// Files are never accessed from the browser directly: the backend streams them after an ownership check.
 import { Amplify } from 'aws-amplify'
 
 Amplify.configure({
@@ -5,13 +7,6 @@ Amplify.configure({
     Cognito: {
       userPoolId: import.meta.env.VITE_USER_POOL_ID,
       userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID,
-      identityPoolId: import.meta.env.VITE_IDENTITY_POOL_ID,
-    }
-  },
-  Storage: {
-    S3: {
-      bucket: import.meta.env.VITE_S3_BUCKET,
-      region: import.meta.env.VITE_S3_REGION,
     }
   }
 })

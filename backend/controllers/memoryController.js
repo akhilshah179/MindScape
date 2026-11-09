@@ -1,172 +1,65 @@
+import { PutCommand, QueryCommand, DeleteCommand, BatchWriteCommand } from '@aws-sdk/lib-dynamodb'
 import dynamoDb from '../config/dynamoDb.js'
-import { PutCommand, QueryCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb'
+import { HttpError, requireString } from '../middleware/http.js'
 
-const TABLE_PREFIX = 'studymate'
+const TABLE = 'studymate_ai_memory'
+const MAX_ITEMS = 100
 
-function getRequestUserId(req) {
-    return req.headers['x-user-id'] || req.params?.userId || req.body?.userId || req.query?.userId || null
+export const normalizeMemoryKey = (key) =>
+  String(key || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60)
+
+export async function listMemory(userId) {
+  const { Items = [] } = await dynamoDb.send(new QueryCommand({
+    TableName: TABLE, KeyConditionExpression: 'userId = :u', ExpressionAttributeValues: { ':u': userId }
+  }))
+  return Items.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
 }
 
-function normalizeMemoryKey(key) {
-    if (!key) return ''
-    return String(key).trim().toLowerCase().replace(/\s+/g, '_')
+/** Manual entries win: an auto-extracted fact never overwrites something the user typed. */
+export async function upsertMemory(userId, key, value, source = 'manual') {
+  const memoryKey = normalizeMemoryKey(key)
+  if (!memoryKey) throw new HttpError(400, 'Memory key is invalid.')
+  const item = { userId, memoryKey, value: String(value).trim().slice(0, 500), source, updatedAt: new Date().toISOString() }
+  try {
+    await dynamoDb.send(new PutCommand({
+      TableName: TABLE, Item: item,
+      ...(source === 'auto' ? { ConditionExpression: 'attribute_not_exists(memoryKey) OR #s = :auto', ExpressionAttributeNames: { '#s': 'source' }, ExpressionAttributeValues: { ':auto': 'auto' } } : {})
+    }))
+  } catch (err) {
+    if (err.name === 'ConditionalCheckFailedException') return null
+    throw err
+  }
+  return item
 }
 
-/**
- * GET /api/memory/:userId
- * Retrieve all AI memory items for a user
- */
-export const getMemory = async (req, res) => {
-    try {
-        const { userId } = req.params
-        const authUserId = getRequestUserId(req)
+// GET /memory
+export const getMemory = async (req, res) => res.json(await listMemory(req.user.userId))
 
-        if (!authUserId) {
-            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
-        }
-        if (authUserId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You cannot access another user\'s memory.' })
-        }
-
-        const data = await dynamoDb.send(new QueryCommand({
-            TableName: `${TABLE_PREFIX}_ai_memory`,
-            KeyConditionExpression: 'userId = :uid',
-            ExpressionAttributeValues: { ':uid': userId }
-        }))
-
-        res.json(data.Items || [])
-    } catch (err) {
-        console.error('Get memory error:', err)
-        res.status(500).json({ error: 'Failed to fetch memory' })
-    }
-}
-
-/**
- * POST /api/memory/:userId
- * Set or update a memory item
- * Body: { key, value }
- */
+// POST /memory  { key, value }
 export const setMemory = async (req, res) => {
-    try {
-        const { userId } = req.params
-        const authUserId = getRequestUserId(req)
-        const { key, value } = req.body
-
-        if (!authUserId) {
-            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
-        }
-        if (authUserId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You cannot modify another user\'s memory.' })
-        }
-
-        if (!key || !value) {
-            return res.status(400).json({ error: 'Key and value are required' })
-        }
-
-        const memoryKey = normalizeMemoryKey(key)
-        const now = new Date().toISOString()
-        const memoryItem = {
-            userId,
-            memoryKey,
-            value: String(value).trim(),
-            source: 'manual',
-            updatedAt: now
-        }
-
-        await dynamoDb.send(new PutCommand({
-            TableName: `${TABLE_PREFIX}_ai_memory`,
-            Item: memoryItem
-        }))
-
-        res.json({ success: true, item: memoryItem })
-    } catch (err) {
-        console.error('Set memory error:', err)
-        res.status(500).json({ error: 'Failed to save memory' })
-    }
+  const existing = await listMemory(req.user.userId)
+  const key = requireString(req.body?.key, 'key', { max: 60 })
+  if (existing.length >= MAX_ITEMS && !existing.some(m => m.memoryKey === normalizeMemoryKey(key))) {
+    throw new HttpError(400, `Memory is limited to ${MAX_ITEMS} items. Delete some first.`)
+  }
+  const item = await upsertMemory(req.user.userId, key, requireString(req.body?.value, 'value', { max: 500 }), 'manual')
+  res.json({ success: true, item })
 }
 
-/**
- * DELETE /api/memory/:userId/:key
- * Delete a specific memory item
- */
+// DELETE /memory/:key
 export const deleteMemory = async (req, res) => {
-    try {
-        const { userId, key } = req.params
-        const authUserId = getRequestUserId(req)
-
-        if (!authUserId) {
-            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
-        }
-        if (authUserId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You cannot delete another user\'s memory.' })
-        }
-
-        const normalizedKey = normalizeMemoryKey(key)
-
-        await dynamoDb.send(new DeleteCommand({
-            TableName: `${TABLE_PREFIX}_ai_memory`,
-            Key: { userId, memoryKey: normalizedKey }
-        }))
-
-        // Also clean raw key if different
-        if (normalizedKey !== key) {
-            try {
-                await dynamoDb.send(new DeleteCommand({
-                    TableName: `${TABLE_PREFIX}_ai_memory`,
-                    Key: { userId, memoryKey: key }
-                }))
-            } catch (_) {}
-        }
-
-        res.json({ success: true, deletedKey: normalizedKey })
-    } catch (err) {
-        console.error('Delete memory error:', err)
-        res.status(500).json({ error: 'Failed to delete memory' })
-    }
+  const memoryKey = normalizeMemoryKey(req.params.key)
+  await dynamoDb.send(new DeleteCommand({ TableName: TABLE, Key: { userId: req.user.userId, memoryKey } }))
+  res.json({ success: true, deletedKey: memoryKey })
 }
 
-/**
- * DELETE /api/memory/:userId
- * Clear all memory for a user — use query param ?all=true
- */
+// DELETE /memory
 export const clearAllMemory = async (req, res) => {
-    try {
-        const { userId } = req.params
-        const authUserId = getRequestUserId(req)
-
-        if (!authUserId) {
-            return res.status(401).json({ error: 'Unauthorized: User identity required.' })
-        }
-        if (authUserId !== userId) {
-            return res.status(403).json({ error: 'Forbidden: You cannot clear another user\'s memory.' })
-        }
-
-        if (req.query.all !== 'true') {
-            return res.status(400).json({ error: 'Pass ?all=true to confirm clearing all memory' })
-        }
-
-        // Fetch all memory items
-        const data = await dynamoDb.send(new QueryCommand({
-            TableName: `${TABLE_PREFIX}_ai_memory`,
-            KeyConditionExpression: 'userId = :uid',
-            ExpressionAttributeValues: { ':uid': userId },
-            ProjectionExpression: 'userId, memoryKey'
-        }))
-
-        if (data.Items?.length) {
-            // Delete each item
-            await Promise.all(data.Items.map(item =>
-                dynamoDb.send(new DeleteCommand({
-                    TableName: `${TABLE_PREFIX}_ai_memory`,
-                    Key: { userId: item.userId, memoryKey: item.memoryKey }
-                }))
-            ))
-        }
-
-        res.json({ success: true, deleted: data.Items?.length || 0 })
-    } catch (err) {
-        console.error('Clear memory error:', err)
-        res.status(500).json({ error: 'Failed to clear memory' })
-    }
+  const items = await listMemory(req.user.userId)
+  for (let i = 0; i < items.length; i += 25) {
+    await dynamoDb.send(new BatchWriteCommand({
+      RequestItems: { [TABLE]: items.slice(i, i + 25).map(m => ({ DeleteRequest: { Key: { userId: m.userId, memoryKey: m.memoryKey } } })) }
+    }))
+  }
+  res.json({ success: true, deleted: items.length })
 }
-

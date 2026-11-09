@@ -1,119 +1,114 @@
-import { useState, useEffect } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { CalendarClock, CheckSquare, Plus, Square, Trophy, Users } from 'lucide-react'
 import { useContests } from '../../hooks/coding/useContest'
-import ContestCard from '../../components/coding/ContestCard'
+import { fetchProblems } from '../../services/coding/codingApi'
+import { Badge, Button, Card, EmptyState, Input, Modal, Segmented, Skeleton, cx, useToast } from '../../components/ui'
 
-export default function ContestsPage() {
-  const { user } = useOutletContext() || {}
-  const { contests, loading, loadContests, createContest } = useContests()
-  const [showCreate, setShowCreate] = useState(false)
-  const [tab, setTab] = useState('active')
-  const [form, setForm] = useState({ title: '', description: '', problemIds: '', duration: 60 })
+const DIFF = { Easy: 'ok', Medium: 'warn', Hard: 'bad' }
+const localInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 
-  useEffect(() => { loadContests() }, [])
-
-  const now = new Date()
-  const activeContests = contests.filter(c => new Date(c.startTime) <= now && new Date(c.endTime) >= now)
-  const upcomingContests = contests.filter(c => new Date(c.startTime) > now)
-  const pastContests = contests.filter(c => new Date(c.endTime) < now)
-  const filtered = tab === 'active' ? activeContests : tab === 'upcoming' ? upcomingContests : pastContests
-
-  const handleCreate = async (e) => {
+function CreateContest({ open, onClose, onCreate }) {
+  const { toast } = useToast()
+  const [problems, setProblems] = useState(null)
+  const [form, setForm] = useState({ title: '', description: '', startMode: 'now', start: localInput(new Date(Date.now() + 3600e3)), duration: 60, picked: [] })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (open && !problems) fetchProblems().then(d => setProblems(d.problems)).catch(e => toast(e.message, 'error')) }, [open, problems, toast])
+  const toggle = (id) => setForm(f => ({ ...f, picked: f.picked.includes(id) ? f.picked.filter(x => x !== id) : [...f.picked, id].slice(0, 10) }))
+  const submit = async (e) => {
     e.preventDefault()
-    const start = new Date()
-    start.setHours(start.getHours() + 1)
-    const end = new Date(start.getTime() + form.duration * 60000)
-
+    const start = form.startMode === 'now' ? new Date() : new Date(form.start)
+    if (form.startMode !== 'now' && start < new Date()) return toast('Start time must be in the future.', 'error')
+    setSaving(true)
     try {
-      await createContest({
-        title: form.title,
-        description: form.description,
-        problemIds: form.problemIds.split(',').map(s => s.trim()).filter(Boolean),
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-        duration: parseInt(form.duration),
-        createdBy: user?.userId
+      const res = await onCreate({
+        title: form.title.trim(), description: form.description.trim(), problemIds: form.picked,
+        startTime: start.toISOString(), endTime: new Date(start.getTime() + form.duration * 60000).toISOString()
       })
-      setShowCreate(false)
-      setForm({ title: '', description: '', problemIds: '', duration: 60 })
-    } catch (err) {
-      console.error('Create contest error:', err)
-    }
+      onClose(res)
+    } catch (err) { toast(err.message, 'error') } finally { setSaving(false) }
   }
-
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <Modal open={open} onClose={() => onClose()} title="Create a contest" size="lg">
+      <form onSubmit={submit} className="p-6 space-y-4">
+        <Input label="Title" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Weekly challenge #1" maxLength={120} required />
+        <Input label="Description (optional)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} maxLength={500} />
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs font-medium text-ink-2 mb-1.5">Start</p>
+            <Segmented layoutId="contest-start" value={form.startMode} onChange={v => setForm({ ...form, startMode: v })} options={[{ value: 'now', label: 'Now' }, { value: 'later', label: 'Schedule' }]} />
+            {form.startMode === 'later' && <input type="datetime-local" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })} className="mt-2 w-full h-10 rounded-xl bg-surface-2 border px-3 text-sm text-ink" aria-label="Start time" />}
+          </div>
+          <label className="block"><span className="block text-xs font-medium text-ink-2 mb-1.5">Duration</span>
+            <select value={form.duration} onChange={e => setForm({ ...form, duration: Number(e.target.value) })} className="w-full h-10 rounded-xl bg-surface-2 border px-3 text-sm text-ink">
+              {[30, 60, 90, 120, 180, 1440].map(m => <option key={m} value={m}>{m < 60 ? `${m} minutes` : m === 1440 ? '24 hours' : `${m / 60} hour${m > 60 ? 's' : ''}`}</option>)}
+            </select>
+          </label>
+        </div>
         <div>
-          <h1 className="text-2xl font-bold text-white">Contests</h1>
-          <p className="text-sm text-white/30 mt-1">Compete with others in timed coding challenges</p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-xl text-xs font-medium border border-indigo-500/20 transition-all"
-        >
-          + Create Contest
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1.5 mb-6 bg-white/[0.02] rounded-xl p-1 border border-white/[0.06] w-fit">
-        {[
-          { id: 'active', label: `Active (${activeContests.length})` },
-          { id: 'upcoming', label: `Upcoming (${upcomingContests.length})` },
-          { id: 'past', label: `Past (${pastContests.length})` },
-        ].map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-lg text-xs font-medium transition-all
-              ${tab === t.id ? 'bg-white/[0.06] text-white/80' : 'text-white/30 hover:text-white/50'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Contest list */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-white/20">
-          <span className="text-3xl block mb-3">🏆</span>
-          <p className="text-sm">No {tab} contests</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map(c => (
-            <ContestCard key={c.contestId} contest={c} />
-          ))}
-        </div>
-      )}
-
-      {/* Create Modal */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowCreate(false)}>
-          <div className="bg-[#12121a] rounded-2xl w-full max-w-md p-6 border border-white/[0.08]" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-white mb-4">Create Contest</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
-              <input type="text" placeholder="Contest Title" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} required
-                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" />
-              <textarea placeholder="Description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-indigo-500/30 resize-none h-20" />
-              <input type="text" placeholder="Problem IDs (comma-separated)" value={form.problemIds} onChange={e => setForm(f => ({ ...f, problemIds: e.target.value }))}
-                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" />
-              <input type="number" placeholder="Duration (minutes)" value={form.duration} onChange={e => setForm(f => ({ ...f, duration: e.target.value }))}
-                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-white/80 placeholder-white/20 focus:outline-none focus:border-indigo-500/30" />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCreate(false)} className="flex-1 py-2.5 bg-white/[0.04] hover:bg-white/[0.08] text-white/40 rounded-xl text-xs font-medium">Cancel</button>
-                <button type="submit" className="flex-1 py-2.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 rounded-xl text-xs font-semibold">Create</button>
-              </div>
-            </form>
+          <p className="text-xs font-medium text-ink-2 mb-1.5">Problems <span className="text-ink-3 font-normal">({form.picked.length}/10 selected)</span></p>
+          <div className="max-h-64 overflow-y-auto thin-scroll border rounded-xl p-1">
+            {!problems ? [0, 1, 2, 3].map(i => <Skeleton key={i} className="h-9 m-1" />) : problems.map(p => {
+              const on = form.picked.includes(p.id)
+              return (
+                <button type="button" key={p.id} onClick={() => toggle(p.id)} className={cx('w-full flex items-center gap-2.5 px-2.5 h-9 rounded-lg text-left text-sm', on ? 'bg-accent/10' : 'hover:bg-surface-2')}>
+                  {on ? <CheckSquare className="w-4 h-4 text-accent-ink" /> : <Square className="w-4 h-4 text-ink-3" />}
+                  <span className="flex-1 text-ink truncate">{p.title}</span><Badge tone={DIFF[p.difficulty]}>{p.difficulty}</Badge>
+                </button>
+              )
+            })}
           </div>
         </div>
-      )}
+        <Button type="submit" className="w-full" loading={saving} disabled={!form.title.trim() || !form.picked.length}>Create contest</Button>
+      </form>
+    </Modal>
+  )
+}
+
+export default function ContestsPage() {
+  const navigate = useNavigate()
+  const { contests, loading, error, loadContests, createContest } = useContests()
+  const [tab, setTab] = useState('active')
+  const [creating, setCreating] = useState(false)
+  useEffect(() => { loadContests() }, [loadContests])
+
+  const groups = useMemo(() => ({
+    active: contests.filter(c => c.status === 'active'),
+    upcoming: contests.filter(c => c.status === 'upcoming'),
+    completed: contests.filter(c => c.status === 'completed'),
+  }), [contests])
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+      <div className="flex items-end justify-between gap-4 mb-6">
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-ink">Contests</h1>
+          <p className="text-sm text-ink-3 mt-1">Timed challenges with a live leaderboard. Points: Easy 100 · Medium 200 · Hard 300.</p>
+        </div>
+        <Button icon={Plus} onClick={() => setCreating(true)}>Create</Button>
+      </div>
+      <Segmented layoutId="contest-tab" value={tab} onChange={setTab} options={[
+        { value: 'active', label: `Live (${groups.active.length})` }, { value: 'upcoming', label: `Upcoming (${groups.upcoming.length})` }, { value: 'completed', label: 'Past' }]} />
+      <div className="mt-5 grid sm:grid-cols-2 gap-3">
+        {loading ? [0, 1].map(i => <Skeleton key={i} className="h-32" />)
+          : error ? <p className="text-sm text-bad">{error}</p>
+            : groups[tab].length === 0 ? <div className="sm:col-span-2"><EmptyState icon={Trophy} title={`No ${tab === 'active' ? 'live' : tab} contests`} description="Create one and invite your classmates." /></div>
+              : groups[tab].map(c => (
+                <Card key={c.contestId} as="button" interactive onClick={() => navigate(`/coding/contest/${c.contestId}`)} className="p-5 text-left">
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge tone={c.status === 'active' ? 'ok' : c.status === 'upcoming' ? 'accent' : 'neutral'}>{c.status === 'active' ? '● Live' : c.status === 'upcoming' ? 'Upcoming' : 'Ended'}</Badge>
+                    {c.joined && <Badge tone="accent">Joined</Badge>}
+                  </div>
+                  <p className="font-semibold text-ink mt-3 truncate">{c.title}</p>
+                  <div className="flex flex-wrap gap-3 mt-2 text-xs text-ink-3">
+                    <span className="inline-flex items-center gap-1"><CalendarClock className="w-3.5 h-3.5" />{new Date(c.startTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <span>{c.problemCount} problems</span>
+                    <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" />{c.participantCount}</span>
+                  </div>
+                </Card>
+              ))}
+      </div>
+      <CreateContest open={creating} onCreate={createContest} onClose={(res) => { setCreating(false); if (res?.contestId) navigate(`/coding/contest/${res.contestId}`) }} />
     </div>
   )
 }

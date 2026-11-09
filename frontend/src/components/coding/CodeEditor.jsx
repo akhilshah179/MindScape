@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import Editor from '@monaco-editor/react'
 
 const EDITOR_THEMES = {
@@ -39,6 +39,10 @@ const LANGUAGE_MAP = {
 
 export default function CodeEditor({ language = 'python', value = '', onChange, onRun, onSubmit, readOnly = false }) {
   const editorRef = useRef(null)
+  // Monaco actions are registered once; read the latest callbacks through refs (avoids running stale code)
+  const runRef = useRef(onRun)
+  const submitRef = useRef(onSubmit)
+  useEffect(() => { runRef.current = onRun; submitRef.current = onSubmit }, [onRun, onSubmit])
 
   const handleMount = useCallback((editor, monaco) => {
     editorRef.current = editor
@@ -52,26 +56,26 @@ export default function CodeEditor({ language = 'python', value = '', onChange, 
       id: 'run-code',
       label: 'Run Code',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
-      run: () => onRun?.()
+      run: () => runRef.current?.()
     })
 
     editor.addAction({
       id: 'submit-code',
       label: 'Submit Code',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter],
-      run: () => onSubmit?.()
+      run: () => submitRef.current?.()
     })
 
     // Focus editor
     editor.focus()
-  }, [onRun, onSubmit])
+  }, [])
 
   const handleChange = useCallback((val) => {
     onChange?.(val || '')
   }, [onChange])
 
   return (
-    <div className="relative h-full w-full rounded-xl overflow-hidden border border-white/[0.06]">
+    <div className="relative h-full w-full overflow-hidden">
       {/* Editor header bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#0d0d14] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">

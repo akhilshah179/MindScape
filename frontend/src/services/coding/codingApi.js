@@ -1,75 +1,30 @@
-import axios from 'axios'
+// Coding Arena API. Identity comes from the auth token (userId args are ignored).
+import { api } from '../../lib/api'
 
-const API_BASE = 'http://localhost:5000/api/coding'
+const get = (url, config) => api.get(`/coding${url}`, config).then(r => r.data)
+const post = (url, body, config) => api.post(`/coding${url}`, body, config).then(r => r.data)
 
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 60000,
-  headers: { 'Content-Type': 'application/json' }
-})
+export const fetchProblems = (filters = {}) => get('/problems', { params: filters })
+export const fetchProblem = (id) => get(`/problems/${encodeURIComponent(id)}`)
 
-// ── Problems ──
-export const fetchProblems = (filters = {}) => {
-  const params = new URLSearchParams()
-  if (filters.difficulty) params.append('difficulty', filters.difficulty)
-  if (filters.category) params.append('category', filters.category)
-  if (filters.search) params.append('search', filters.search)
-  return api.get(`/problems?${params.toString()}`).then(r => r.data)
-}
+export const runCode = ({ code, language, problemId, stdin }) => post('/run', { code, language, problemId, stdin })
+export const submitCode = ({ problemId, language, code, contestId }) => post('/submit', { problemId, language, code, contestId })
 
-export const fetchProblem = (id) =>
-  api.get(`/problems/${id}`).then(r => r.data)
+export const fetchSubmissions = (_userId, problemId) => get('/submissions', { params: problemId ? { problemId } : {} })
 
-// ── Code Execution ──
-export const runCode = ({ code, language, problemId, stdin }) =>
-  api.post('/run', { code, language, problemId, stdin }).then(r => r.data)
+export const aiReviewCode = ({ code, language, problemTitle }) => post('/ai/review', { code, language, problemTitle })
+export const aiGetHint = ({ problemId, hintLevel }) => post('/ai/hint', { problemId, hintLevel })
+export const aiDebugCode = ({ code, language, error }) => post('/ai/debug', { code, language, error })
+export const aiInterviewQuestions = ({ topic, count }) => post('/ai/interview', { topic, count })
+export const aiMockInterview = ({ topic, messages }) => post('/ai/mock-interview', { topic, messages })
 
-export const submitCode = ({ userId, problemId, language, code }) =>
-  api.post('/submit', { userId, problemId, language, code }).then(r => r.data)
+export const fetchDashboard = () => get('/dashboard')
+export const fetchGamification = () => get('/gamification')
 
-// ── Submissions ──
-export const fetchSubmissions = (userId, problemId) => {
-  const params = problemId ? `?problemId=${problemId}` : ''
-  return api.get(`/submissions/${userId}${params}`).then(r => r.data)
-}
-
-// ── AI Features ──
-export const aiReviewCode = ({ code, language, problemTitle }) =>
-  api.post('/ai/review', { code, language, problemTitle }).then(r => r.data)
-
-export const aiGetHint = ({ problemId, hintLevel }) =>
-  api.post('/ai/hint', { problemId, hintLevel }).then(r => r.data)
-
-export const aiDebugCode = ({ code, language, error, userId }) =>
-  api.post('/ai/debug', { code, language, error, userId }).then(r => r.data)
-
-export const aiInterviewQuestions = ({ topic, count }) =>
-  api.post('/ai/interview', { topic, count }).then(r => r.data)
-
-export const aiMockInterview = ({ topic, messages }) =>
-  api.post('/ai/mock-interview', { topic, messages }).then(r => r.data)
-
-// ── Dashboard & Gamification ──
-export const fetchDashboard = (userId) =>
-  api.get(`/dashboard/${userId}`).then(r => r.data)
-
-export const fetchGamification = (userId) =>
-  api.get(`/gamification/${userId}`).then(r => r.data)
-
-// ── Contests ──
-export const createContest = (data) =>
-  api.post('/contests', data).then(r => r.data)
-
-export const fetchContests = () =>
-  api.get('/contests').then(r => r.data)
-
-export const fetchContest = (id) =>
-  api.get(`/contests/${id}`).then(r => r.data)
-
-export const joinContest = (id, data) =>
-  api.post(`/contests/${id}/join`, data).then(r => r.data)
-
-export const fetchLeaderboard = (id) =>
-  api.get(`/contests/${id}/leaderboard`).then(r => r.data)
+export const createContest = (data) => post('/contests', data)
+export const fetchContests = () => get('/contests')
+export const fetchContest = (id) => get(`/contests/${id}`)
+export const joinContest = (id) => post(`/contests/${id}/join`, {})
+export const fetchLeaderboard = (id) => get(`/contests/${id}/leaderboard`)
 
 export default api

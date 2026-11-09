@@ -1,322 +1,178 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { ArrowUp, BookOpen, FileText, ListChecks, Menu, PanelLeftOpen, Paperclip, RotateCcw, Sparkles, Square, Target, X, AlertCircle } from 'lucide-react'
+import Markdown from '../../components/ai/Markdown'
+import { IconButton, Skeleton, cx } from '../../components/ui'
 
-// ─── Markdown-like renderer ───────────────────────────────────────────────────
-function renderContent(text) {
-    if (!text) return null
-    const lines = text.split('\n')
-    const elements = []
-    let inCodeBlock = false
-    let codeLines = []
-    let codeLang = ''
+const STARTERS = [
+  { icon: BookOpen, label: 'Explain a concept', prompt: 'Explain the concept of ' },
+  { icon: ListChecks, label: 'Quiz me', prompt: 'Give me 5 practice questions on ' },
+  { icon: FileText, label: 'Summarise a topic', prompt: 'Summarise the key points of ' },
+  { icon: Target, label: 'Make a study plan', prompt: 'Make me a 7-day study plan for ' },
+]
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]
-
-        if (line.startsWith('```')) {
-            if (inCodeBlock) {
-                elements.push(
-                    <div key={`code-${i}`} className="ai-code-block">
-                        {codeLang && <div className="ai-code-header">{codeLang}</div>}
-                        <pre><code>{codeLines.join('\n')}</code></pre>
-                    </div>
-                )
-                codeLines = []
-                codeLang = ''
-                inCodeBlock = false
-            } else {
-                inCodeBlock = true
-                codeLang = line.slice(3).trim()
-            }
-            continue
-        }
-
-        if (inCodeBlock) {
-            codeLines.push(line)
-            continue
-        }
-
-        // Headings
-        if (line.startsWith('### ')) {
-            elements.push(<h4 key={i} className="text-sm font-bold text-white/90 mt-3 mb-1">{formatInline(line.slice(4))}</h4>)
-        } else if (line.startsWith('## ')) {
-            elements.push(<h3 key={i} className="text-sm font-bold text-white/90 mt-3 mb-1">{formatInline(line.slice(3))}</h3>)
-        } else if (line.startsWith('# ')) {
-            elements.push(<h2 key={i} className="text-base font-bold text-white/90 mt-3 mb-1">{formatInline(line.slice(2))}</h2>)
-        }
-        // Bullet lists
-        else if (line.match(/^[-*]\s/)) {
-            elements.push(
-                <div key={i} className="ai-list-item">
-                    <span className="text-[13px] text-white/70 leading-relaxed">{formatInline(line.slice(2))}</span>
-                </div>
-            )
-        }
-        // Numbered lists
-        else if (line.match(/^\d+\.\s/)) {
-            const num = line.match(/^(\d+)\./)[1]
-            elements.push(
-                <div key={i} className="ai-ordered-item">
-                    <span className="text-violet-400/60 text-xs font-semibold shrink-0 mt-0.5 w-4">{num}.</span>
-                    <span className="text-[13px] text-white/70 leading-relaxed">{formatInline(line.replace(/^\d+\.\s/, ''))}</span>
-                </div>
-            )
-        }
-        // Empty lines
-        else if (line.trim() === '') {
-            elements.push(<div key={i} className="h-2" />)
-        }
-        // Regular text
-        else {
-            elements.push(<p key={i} className="text-[13px] text-white/70 leading-relaxed">{formatInline(line)}</p>)
-        }
-    }
-
-    return elements
-}
-
-function formatInline(text) {
-    const parts = []
-    let remaining = text
-    let key = 0
-
-    while (remaining.length > 0) {
-        // Bold
-        const boldMatch = remaining.match(/\*\*(.*?)\*\*/)
-        // Inline code
-        const codeMatch = remaining.match(/`([^`]+)`/)
-
-        let firstMatch = null
-        let firstIndex = Infinity
-
-        if (boldMatch && remaining.indexOf(boldMatch[0]) < firstIndex) {
-            firstMatch = { type: 'bold', match: boldMatch, index: remaining.indexOf(boldMatch[0]) }
-            firstIndex = firstMatch.index
-        }
-        if (codeMatch && remaining.indexOf(codeMatch[0]) < firstIndex) {
-            firstMatch = { type: 'code', match: codeMatch, index: remaining.indexOf(codeMatch[0]) }
-            firstIndex = firstMatch.index
-        }
-
-        if (!firstMatch) {
-            parts.push(<span key={key++}>{remaining}</span>)
-            break
-        }
-
-        if (firstMatch.index > 0) {
-            parts.push(<span key={key++}>{remaining.slice(0, firstMatch.index)}</span>)
-        }
-
-        if (firstMatch.type === 'bold') {
-            parts.push(<strong key={key++} className="text-white/90 font-semibold">{firstMatch.match[1]}</strong>)
-        } else if (firstMatch.type === 'code') {
-            parts.push(<code key={key++} className="ai-inline-code">{firstMatch.match[1]}</code>)
-        }
-
-        remaining = remaining.slice(firstMatch.index + firstMatch.match[0].length)
-    }
-
-    return parts
-}
-
-// ─── Typing indicator ─────────────────────────────────────────────────────────
-function TypingIndicator() {
-    return (
-        <div className="flex items-center gap-1.5 px-3 py-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-violet-400" style={{ animation: 'typingPulse 1.4s infinite', animationDelay: '0ms' }} />
-            <div className="w-1.5 h-1.5 rounded-full bg-violet-400" style={{ animation: 'typingPulse 1.4s infinite', animationDelay: '200ms' }} />
-            <div className="w-1.5 h-1.5 rounded-full bg-violet-400" style={{ animation: 'typingPulse 1.4s infinite', animationDelay: '400ms' }} />
+function Composer({ value, onChange, onSend, onStop, sending, attachedFile, onAttach, onDetach, inputRef, autoFocus }) {
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  }, [value, inputRef])
+  return (
+    <div className="rounded-2xl border bg-surface shadow-card focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/10 transition-all">
+      {attachedFile && (
+        <div className="px-3 pt-3">
+          <span className="inline-flex items-center gap-2 max-w-full pl-2.5 pr-1 h-8 rounded-lg bg-accent/10 border border-accent/20 text-xs text-accent-ink">
+            <FileText className="w-3.5 h-3.5 shrink-0" /><span className="truncate">{attachedFile.fileName}</span>
+            <button onClick={onDetach} className="w-6 h-6 rounded-md flex items-center justify-center hover:bg-accent/15" aria-label="Detach document"><X className="w-3 h-3" /></button>
+          </span>
         </div>
-    )
+      )}
+      <textarea
+        ref={inputRef}
+        autoFocus={autoFocus}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSend() } }}
+        placeholder={attachedFile ? `Ask about ${attachedFile.fileName}…` : 'Ask StudyMate anything…'}
+        rows={1}
+        maxLength={8000}
+        aria-label="Message"
+        className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] text-ink placeholder:text-ink-3 focus:outline-none"
+      />
+      <div className="flex items-center justify-between px-2.5 pb-2.5">
+        <button onClick={onAttach} className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-ink-3 hover:text-ink hover:bg-surface-2" title="Chat with a PDF">
+          <Paperclip className="w-4 h-4" /><span className="hidden sm:inline">{attachedFile ? 'Change document' : 'Attach PDF'}</span>
+        </button>
+        {sending ? (
+          <button onClick={onStop} className="w-9 h-9 rounded-xl bg-surface-3 text-ink flex items-center justify-center hover:bg-[rgb(var(--line)/0.15)]" aria-label="Stop generating"><Square className="w-3.5 h-3.5 fill-current" /></button>
+        ) : (
+          <button onClick={onSend} disabled={!value.trim()} className="w-9 h-9 rounded-xl bg-accent-gradient text-white flex items-center justify-center shadow-glow disabled:opacity-30 disabled:shadow-none transition-opacity" aria-label="Send message"><ArrowUp className="w-4 h-4" /></button>
+        )}
+      </div>
+    </div>
+  )
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+function Message({ m, onRetry }) {
+  if (m.role === 'user') {
+    return (
+      <div className="flex flex-col items-end gap-1 ai-message-animate">
+        <div className={cx('max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words', m.failed ? 'bg-bad/10 text-ink border border-bad/20' : 'bg-accent text-white')}>{m.content}</div>
+        {m.failed && (
+          <div className="flex items-center gap-2 text-xs text-bad">
+            <AlertCircle className="w-3.5 h-3.5" />{m.error === 'Stopped' ? 'Stopped' : 'Not sent'}
+            <button onClick={() => onRetry(m)} className="inline-flex items-center gap-1 text-ink-2 hover:text-ink underline-offset-2 hover:underline"><RotateCcw className="w-3 h-3" />Retry</button>
+          </div>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className="flex gap-3 ai-message-animate">
+      <span className="w-7 h-7 rounded-lg bg-accent-gradient flex items-center justify-center shrink-0 mt-0.5 shadow-glow"><Sparkles className="w-3.5 h-3.5 text-white" /></span>
+      <div className="min-w-0 flex-1 pt-0.5">
+        {m.streaming && !m.content
+          ? <div className="flex items-center gap-1.5 h-6">{[0, 200, 400].map(d => <span key={d} className="w-1.5 h-1.5 rounded-full bg-accent" style={{ animation: 'typingPulse 1.4s infinite', animationDelay: `${d}ms` }} />)}</div>
+          : <Markdown text={m.content} streaming={m.streaming} />}
+        {m.metadata?.usedDocument && !m.streaming && <p className="mt-2 text-[11px] text-ink-3 inline-flex items-center gap-1"><FileText className="w-3 h-3" />Answered from your document</p>}
+      </div>
+    </div>
+  )
+}
+
 export default function AIChatPage() {
-    const { user, chatHook, promptToInsert, setPromptToInsert, pdfContext, setPdfContext } = useOutletContext()
-    const [input, setInput] = useState('')
-    const messagesEndRef = useRef(null)
-    const inputRef = useRef(null)
+  const { user, chat, promptToInsert, setPromptToInsert, sidebarOpen, openSidebar, openMobileSidebar, openDocuments } = useOutletContext()
+  const [input, setInput] = useState('')
+  const inputRef = useRef(null)
+  const scrollRef = useRef(null)
+  const stickToBottom = useRef(true)
 
-    const { messages, activeChatId, isSending, isLoading, sendMessage, createChat } = chatHook
+  const { messages, activeChat, activeChatId, isLoading, isSending, attachedFile } = chat
 
-    // Auto-scroll on new messages
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages, isSending])
+  useEffect(() => {
+    if (promptToInsert) { setInput(promptToInsert); setPromptToInsert(''); inputRef.current?.focus() }
+  }, [promptToInsert, setPromptToInsert])
 
-    // Handle prompt insertion from library
-    useEffect(() => {
-        if (promptToInsert) {
-            setInput(promptToInsert)
-            setPromptToInsert('')
-            inputRef.current?.focus()
-        }
-    }, [promptToInsert])
+  // Focus composer when switching chats
+  useEffect(() => { inputRef.current?.focus(); stickToBottom.current = true }, [activeChatId])
 
-    const handleSend = async () => {
-        const text = input.trim()
-        if (!text || isSending) return
+  // Follow the stream only if the user hasn't scrolled up
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
+  }, [messages])
 
-        const contextText = typeof pdfContext === 'string' ? pdfContext : pdfContext?.text || null
-        const fileId = typeof pdfContext === 'object' ? pdfContext?.fileId : null
-        const fileName = typeof pdfContext === 'object' ? pdfContext?.fileName : null
+  const send = () => {
+    const text = input.trim()
+    if (!text || isSending) return
+    setInput('')
+    stickToBottom.current = true
+    chat.sendMessage(text)
+  }
 
-        setInput('')
-        if (pdfContext) setPdfContext(null)
-        await sendMessage(text, contextText, fileId, fileName)
-    }
+  const header = (
+    <div className="h-14 shrink-0 flex items-center gap-2 px-3 sm:px-4 border-b">
+      <IconButton className="lg:hidden" label="Open chats" icon={Menu} onClick={openMobileSidebar} />
+      {!sidebarOpen && <IconButton className="hidden lg:inline-flex" label="Open sidebar" icon={PanelLeftOpen} onClick={openSidebar} />}
+      <h1 className="text-sm font-medium text-ink truncate flex-1">{activeChat?.title || 'New chat'}</h1>
+      {attachedFile && <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-ink-3 truncate max-w-[40%]"><FileText className="w-3.5 h-3.5 shrink-0" /><span className="truncate">{attachedFile.fileName}</span></span>}
+    </div>
+  )
 
-    const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSend()
-        }
-    }
+  const composer = (
+    <Composer value={input} onChange={setInput} onSend={send} onStop={chat.stop} sending={isSending} inputRef={inputRef}
+      attachedFile={attachedFile} onAttach={openDocuments} onDetach={() => chat.attachFile(null)} autoFocus />
+  )
 
-    // ── Empty state (no chat selected) ────────────────────────────────────────
-    if (!activeChatId && messages.length === 0) {
-        return (
-            <div className="flex-1 flex flex-col items-center justify-center px-6">
-                <div className="max-w-lg text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-600/20 flex items-center justify-center mx-auto mb-6 border border-violet-500/10">
-                        <span className="text-2xl">✦</span>
-                    </div>
-                    <h1 className="text-2xl font-bold text-white/90 mb-2">StudyMate AI</h1>
-                    <p className="text-white/40 text-sm mb-8 leading-relaxed">
-                        Your intelligent study companion. Ask questions, analyze documents, generate quizzes, and get personalized learning assistance.
-                    </p>
-
-                    {/* Quick prompts */}
-                    <div className="grid grid-cols-2 gap-2 max-w-md mx-auto mb-8">
-                        {[
-                            { icon: '📖', label: 'Explain a concept', prompt: 'Explain the concept of ' },
-                            { icon: '📝', label: 'Generate a quiz', prompt: 'Generate a quiz about ' },
-                            { icon: '📋', label: 'Summarize a topic', prompt: 'Summarize the key points of ' },
-                            { icon: '🎯', label: 'Practice problems', prompt: 'Give me practice problems for ' },
-                        ].map(({ icon, label, prompt }) => (
-                            <button
-                                key={label}
-                                onClick={() => { setInput(prompt); inputRef.current?.focus() }}
-                                className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-violet-500/10 hover:border-violet-500/20 text-left transition-all duration-200 group"
-                            >
-                                <span className="text-base">{icon}</span>
-                                <span className="text-xs text-white/50 group-hover:text-white/70 font-medium">{label}</span>
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Input */}
-                    <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3">
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={input}
-                            onChange={e => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Ask anything..."
-                            className="flex-1 bg-transparent text-sm text-white/80 placeholder-white/25 focus:outline-none"
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || isSending}
-                            className="px-4 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-semibold transition-colors"
-                        >
-                            Send
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    // ── Chat view ─────────────────────────────────────────────────────────────
+  if (!activeChatId) {
     return (
-        <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 custom-scrollbar">
-                <div className="max-w-3xl mx-auto space-y-4">
-                    {messages.map((msg, i) => (
-                        <div
-                            key={msg.messageId || i}
-                            className={`flex gap-3 ai-message-animate ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                        >
-                            {msg.role === 'assistant' && (
-                                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-1 shadow-sm shadow-violet-500/20">
-                                    ✦
-                                </div>
-                            )}
-                            <div
-                                className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                                    msg.role === 'user'
-                                        ? 'bg-violet-600/80 text-white rounded-br-sm'
-                                        : 'bg-white/[0.04] border border-white/[0.06] rounded-bl-sm ai-chat-response'
-                                }`}
-                            >
-                                {msg.role === 'user' ? (
-                                    <p className="text-[13px] leading-relaxed">{msg.content}</p>
-                                ) : (
-                                    <div className="space-y-1">{renderContent(msg.content)}</div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-
-                    {isSending && (
-                        <div className="flex gap-3 ai-message-animate">
-                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-white text-[9px] font-bold shrink-0 mt-1">
-                                ✦
-                            </div>
-                            <div className="bg-white/[0.04] border border-white/[0.06] rounded-2xl rounded-bl-sm">
-                                <TypingIndicator />
-                            </div>
-                        </div>
-                    )}
-
-                    <div ref={messagesEndRef} />
-                </div>
-            </div>
-
-            {/* PDF context badge */}
-            {pdfContext && (
-                <div className="px-4 sm:px-6">
-                    <div className="max-w-3xl mx-auto">
-                        <div className="flex items-center gap-2 px-3.5 py-2 bg-violet-500/10 border border-violet-500/20 rounded-xl mb-2">
-                            <span className="text-xs">📄</span>
-                            <span className="text-xs text-violet-300 font-medium flex-1 truncate">
-                                Context attached: {typeof pdfContext === 'object' && pdfContext.fileName ? pdfContext.fileName : 'Document text'}
-                            </span>
-                            <button onClick={() => setPdfContext(null)} className="text-white/30 hover:text-white/60 text-xs">✕</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Input bar */}
-            <div className="px-4 sm:px-6 py-4 bg-[#0a0a0f] border-t border-white/[0.04]">
-                <div className="max-w-3xl mx-auto flex items-center gap-2">
-                    <div className="flex-1 flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 focus-within:border-violet-500/30 transition-colors">
-                        <textarea
-                            ref={inputRef}
-                            value={input}
-                            onChange={e => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Type a message..."
-                            rows={1}
-                            className="flex-1 bg-transparent text-sm text-white/80 placeholder-white/25 focus:outline-none resize-none min-h-[20px] max-h-[120px]"
-                            style={{ height: 'auto' }}
-                        />
-                    </div>
-                    <button
-                        onClick={handleSend}
-                        disabled={!input.trim() || isSending}
-                        className="px-5 py-3 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm font-semibold transition-all duration-200 shrink-0 shadow-lg shadow-violet-600/20 hover:shadow-violet-500/30"
-                    >
-                        {isSending ? '...' : 'Send'}
-                    </button>
-                </div>
-            </div>
+      <div className="h-full flex flex-col">
+        {header}
+        <div className="flex-1 overflow-y-auto thin-scroll">
+          <div className="min-h-full flex flex-col items-center justify-center px-4 sm:px-6 py-10">
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-2xl">
+              <div className="text-center mb-8">
+                <span className="inline-flex w-12 h-12 rounded-2xl bg-accent-gradient shadow-glow items-center justify-center mb-5"><Sparkles className="w-5 h-5 text-white" /></span>
+                <h2 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-ink">Hi {user?.name?.split(' ')[0] || 'there'}, what are we learning today?</h2>
+                <p className="text-ink-3 text-sm mt-2">Ask anything, or attach a PDF and get answers with page citations.</p>
+              </div>
+              {composer}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+                {STARTERS.map(s => (
+                  <button key={s.label} onClick={() => { setInput(s.prompt); inputRef.current?.focus() }}
+                    className="flex flex-col items-start gap-2 p-3 rounded-xl border bg-surface/50 hover:bg-surface-2 hover:border-accent/30 text-left transition-colors">
+                    <s.icon className="w-4 h-4 text-accent-ink" /><span className="text-xs text-ink-2 font-medium">{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
         </div>
+      </div>
     )
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {header}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scroll"
+        onScroll={e => { const el = e.currentTarget; stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+          {isLoading ? (
+            <div className="space-y-6">{[0, 1].map(i => (<div key={i} className="space-y-3"><Skeleton className="h-10 w-1/2 ml-auto" /><Skeleton className="h-24 w-5/6" /></div>))}</div>
+          ) : messages.length === 0 ? (
+            <p className="text-center text-sm text-ink-3 py-16">Send a message to start this conversation.</p>
+          ) : messages.map(m => <Message key={m.messageId} m={m} onRetry={chat.retry} />)}
+        </div>
+      </div>
+      <div className="shrink-0 px-4 sm:px-6 pb-4 pt-2">
+        <div className="max-w-3xl mx-auto">
+          {composer}
+          <p className="text-[11px] text-ink-3 text-center mt-2">StudyMate can make mistakes. Check important facts against your course material.</p>
+        </div>
+      </div>
+    </div>
+  )
 }

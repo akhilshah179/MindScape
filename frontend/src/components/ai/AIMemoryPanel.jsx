@@ -1,120 +1,48 @@
 import { useState } from 'react'
+import { Brain, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Badge, Button, ConfirmDialog, EmptyState, Modal, Skeleton } from '../ui'
 
-export default function AIMemoryPanel({ isOpen, onClose, memories = [], onSetItem, onDeleteItem, onClearAll }) {
-    const [newKey, setNewKey] = useState('')
-    const [newValue, setNewValue] = useState('')
-    const [showClearConfirm, setShowClearConfirm] = useState(false)
+export default function AIMemoryPanel({ isOpen, onClose, memories, loaded, onSetItem, onDeleteItem, onClearAll }) {
+  const [key, setKey] = useState('')
+  const [value, setValue] = useState('')
+  const [confirmClear, setConfirmClear] = useState(false)
 
-    if (!isOpen) return null
+  const add = (e) => {
+    e.preventDefault()
+    if (!key.trim() || !value.trim()) return
+    onSetItem(key, value)
+    setKey(''); setValue('')
+  }
 
-    const handleAdd = () => {
-        if (!newKey.trim() || !newValue.trim()) return
-        onSetItem(newKey.trim(), newValue.trim())
-        setNewKey('')
-        setNewValue('')
-    }
-
-    const handleClear = () => {
-        onClearAll()
-        setShowClearConfirm(false)
-    }
-
-    return (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center px-4" onClick={onClose}>
-            <div className="bg-[#0e0e15] border border-white/[0.08] rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-                {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500/20 to-fuchsia-600/20 flex items-center justify-center">
-                            <span className="text-sm">🧠</span>
-                        </div>
-                        <div>
-                            <h2 className="text-sm font-bold text-white/90">AI Memory</h2>
-                            <p className="text-[10px] text-white/30">{memories.length} items stored</p>
-                        </div>
-                    </div>
-                    <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors text-sm">✕</button>
+  return (
+    <Modal open={isOpen} onClose={onClose} size="lg" title="What StudyMate remembers"
+      description="Personal context used to tailor answers. Learned automatically from chats, or added by you.">
+      <div className="p-6 space-y-5">
+        <form onSubmit={add} className="grid sm:grid-cols-[1fr_1.4fr_auto] gap-2">
+          <input value={key} onChange={e => setKey(e.target.value)} placeholder="e.g. Exam date" maxLength={60} aria-label="Memory name"
+            className="h-10 px-3 rounded-xl bg-surface-2 border text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent/50" />
+          <input value={value} onChange={e => setValue(e.target.value)} placeholder="e.g. 12 December" maxLength={500} aria-label="Memory value"
+            className="h-10 px-3 rounded-xl bg-surface-2 border text-sm text-ink placeholder:text-ink-3 focus:outline-none focus:border-accent/50" />
+          <Button type="submit" icon={Plus} disabled={!key.trim() || !value.trim()}>Add</Button>
+        </form>
+        <div className="space-y-1.5">
+          {!loaded ? [0, 1, 2].map(i => <Skeleton key={i} className="h-12" />)
+            : memories.length === 0 ? <EmptyState icon={Brain} title="No memories yet" description="Tell StudyMate about your course, goals or exam dates and it will remember." />
+              : memories.map(m => (
+                <div key={m.memoryKey} className="group flex items-center gap-3 p-3 rounded-xl border">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-ink-3 capitalize">{m.memoryKey.replace(/_/g, ' ')}</p>
+                    <p className="text-sm text-ink break-words">{m.value}</p>
+                  </div>
+                  {m.source === 'auto' && <Badge tone="accent"><Sparkles className="w-3 h-3" />Learned</Badge>}
+                  <button onClick={() => onDeleteItem(m.memoryKey)} className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-3 hover:text-bad hover:bg-bad/10" aria-label={`Forget ${m.memoryKey}`}><Trash2 className="w-4 h-4" /></button>
                 </div>
-
-                {/* Add new */}
-                <div className="px-5 py-3 border-b border-white/[0.06]">
-                    <div className="flex gap-2">
-                        <input
-                            value={newKey}
-                            onChange={e => setNewKey(e.target.value)}
-                            placeholder="Key (e.g. learning_goal)"
-                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white/70 placeholder-white/20 focus:outline-none focus:border-violet-500/30"
-                        />
-                        <input
-                            value={newValue}
-                            onChange={e => setNewValue(e.target.value)}
-                            placeholder="Value"
-                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white/70 placeholder-white/20 focus:outline-none focus:border-violet-500/30"
-                        />
-                        <button
-                            onClick={handleAdd}
-                            disabled={!newKey.trim() || !newValue.trim()}
-                            className="px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold transition-colors"
-                        >
-                            Add
-                        </button>
-                    </div>
-                </div>
-
-                {/* Memory list */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-3">
-                    {memories.length === 0 ? (
-                        <div className="text-center py-12">
-                            <p className="text-white/20 text-sm mb-1">No memories yet</p>
-                            <p className="text-white/10 text-xs">AI will automatically learn from your conversations, or add items manually above.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {memories.map(mem => (
-                                <div
-                                    key={mem.memoryKey}
-                                    className="flex items-start gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] hover:border-white/[0.08] transition-colors group"
-                                >
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-[10px] text-violet-400/60 font-medium uppercase tracking-wider">{mem.memoryKey}</p>
-                                        <p className="text-xs text-white/60 mt-0.5 break-words">{mem.value}</p>
-                                        <p className="text-[9px] text-white/15 mt-1">
-                                            {mem.source === 'auto' ? '🤖 Auto-detected' : '✏️ Manual'} · {new Date(mem.updatedAt).toLocaleDateString()}
-                                        </p>
-                                    </div>
-                                    <button
-                                        onClick={() => onDeleteItem(mem.memoryKey)}
-                                        className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 text-xs transition-all shrink-0 mt-1"
-                                        title="Delete"
-                                    >
-                                        🗑
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer */}
-                {memories.length > 0 && (
-                    <div className="px-5 py-3 border-t border-white/[0.06]">
-                        {showClearConfirm ? (
-                            <div className="flex items-center gap-2">
-                                <p className="text-xs text-red-400/80 flex-1">Clear all memory items?</p>
-                                <button onClick={() => setShowClearConfirm(false)} className="px-3 py-1.5 rounded-lg bg-white/[0.05] text-white/50 text-xs font-medium">Cancel</button>
-                                <button onClick={handleClear} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30">Clear All</button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => setShowClearConfirm(true)}
-                                className="text-xs text-white/20 hover:text-red-400/60 transition-colors"
-                            >
-                                Clear all memory
-                            </button>
-                        )}
-                    </div>
-                )}
-            </div>
+              ))}
         </div>
-    )
+        {memories.length > 0 && <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>Clear all</Button></div>}
+      </div>
+      <ConfirmDialog open={confirmClear} onClose={() => setConfirmClear(false)} title="Clear all memory?" confirmLabel="Clear"
+        message="StudyMate will forget everything it has learned about you. This can't be undone." onConfirm={() => { onClearAll(); setConfirmClear(false) }} />
+    </Modal>
+  )
 }

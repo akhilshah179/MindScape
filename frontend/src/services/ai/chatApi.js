@@ -1,139 +1,61 @@
-import axios from 'axios'
+// StudyMate AI chat + memory API. Identity comes from the auth token; the legacy
+// `userId` parameters are accepted and ignored so existing callers keep working.
+import { api, streamPost } from '../../lib/api'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+export async function createChat(_userId, { title, fileId } = {}) {
+  const { data } = await api.post('/chat', { title, fileId: fileId || undefined })
+  return data
+}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CHAT API
-// ═══════════════════════════════════════════════════════════════════════════════
+export async function getUserChats() {
+  const { data } = await api.get('/chat')
+  return data
+}
 
-/**
- * Create a new chat session
- */
-export async function createChat(userId, { title, fileId, fileName } = {}) {
-    const res = await axios.post(`${API_BASE}/chat/${userId}/new`, {
-        title: title || 'New Chat',
-        fileId: fileId || null,
-        fileName: fileName || null
-    }, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
+/** Returns { chat, messages }. */
+export async function getChat(chatId, { signal } = {}) {
+  const { data } = await api.get(`/chat/${chatId}/messages`, { signal })
+  return data
+}
+
+export async function getChatMessages(chatId) {
+  return (await getChat(chatId)).messages
 }
 
 /**
- * Get all chats for a user
+ * Send a message. With onToken, the reply streams in; resolves with
+ * { reply, title, fileId, fileName, userMessage, assistantMessage }.
+ * `fileId`: undefined = keep the chat's document, null = detach, string = attach.
  */
-export async function getUserChats(userId) {
-    const res = await axios.get(`${API_BASE}/chat/${userId}/list`, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
+export async function sendMessage(chatId, { content, fileId, onToken, signal }) {
+  const body = { content, ...(fileId !== undefined ? { fileId } : {}) }
+  if (onToken) return streamPost(`/chat/${chatId}/messages`, body, { onToken, signal })
+  const { data } = await api.post(`/chat/${chatId}/messages`, body, { signal })
+  return data
 }
 
-/**
- * Get all messages for a specific chat
- */
-export async function getChatMessages(chatId, userId = null) {
-    const headers = {}
-    if (userId) headers['x-user-id'] = userId
-
-    const res = await axios.get(`${API_BASE}/chat/${chatId}/messages`, { headers })
-    return res.data
+export async function renameChat(_userId, chatId, title) {
+  const { data } = await api.patch(`/chat/${chatId}`, { title })
+  return data
 }
 
-/**
- * Send a message and get AI response
- * @param {string} chatId 
- * @param {string} userId 
- * @param {string} content - User's message text
- * @param {string|null} pdfContext - Optional PDF text context
- * @param {string|null} fileId - Optional PDF file ID
- * @param {string|null} fileName - Optional PDF file Name
- */
-export async function sendMessage(chatId, userId, content, pdfContext = null, fileId = null, fileName = null) {
-    const res = await axios.post(`${API_BASE}/chat/${chatId}/send`, {
-        userId,
-        content,
-        pdfContext,
-        fileId,
-        fileName
-    }, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
+export async function pinChat(chatId, isPinned) {
+  const { data } = await api.patch(`/chat/${chatId}`, { isPinned })
+  return data
 }
 
-/**
- * Rename a chat
- */
-export async function renameChat(userId, chatId, title) {
-    const res = await axios.put(`${API_BASE}/chat/${userId}/${chatId}/rename`, { title }, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
+export async function deleteChat(_userId, chatId) {
+  const { data } = await api.delete(`/chat/${chatId}`)
+  return data
 }
 
-/**
- * Delete a chat and all its messages
- */
-export async function deleteChat(userId, chatId) {
-    const res = await axios.delete(`${API_BASE}/chat/${userId}/${chatId}`, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
+export async function searchChats(_userId, q) {
+  const { data } = await api.get('/chat/search', { params: { q } })
+  return data
 }
 
-/**
- * Search chats by title
- */
-export async function searchChats(userId, query) {
-    const res = await axios.get(`${API_BASE}/chat/${userId}/search`, {
-        headers: { 'x-user-id': userId },
-        params: { q: query }
-    })
-    return res.data
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MEMORY API
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Get all AI memory items for a user
- */
-export async function getMemory(userId) {
-    const res = await axios.get(`${API_BASE}/memory/${userId}`, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
-}
-
-/**
- * Set or update a memory item
- */
-export async function setMemoryItem(userId, key, value) {
-    const res = await axios.post(`${API_BASE}/memory/${userId}`, { key, value }, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
-}
-
-/**
- * Delete a specific memory item
- */
-export async function deleteMemoryItem(userId, key) {
-    const res = await axios.delete(`${API_BASE}/memory/${userId}/${key}`, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
-}
-
-/**
- * Clear all memory for a user
- */
-export async function clearAllMemory(userId) {
-    const res = await axios.delete(`${API_BASE}/memory/${userId}/all`, {
-        headers: { 'x-user-id': userId }
-    })
-    return res.data
-}
+// ── Memory ──
+export async function getMemory() { return (await api.get('/memory')).data }
+export async function setMemoryItem(_userId, key, value) { return (await api.post('/memory', { key, value })).data }
+export async function deleteMemoryItem(_userId, key) { return (await api.delete(`/memory/${encodeURIComponent(key)}`)).data }
+export async function clearAllMemory() { return (await api.delete('/memory')).data }

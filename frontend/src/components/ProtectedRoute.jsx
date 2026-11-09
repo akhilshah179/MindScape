@@ -1,27 +1,27 @@
-import { useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
-import { getAuthUser } from '../utils/auth'
+import { Navigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import { Logo, Spinner } from './ui'
+
+export function FullScreenLoader({ label = 'Loading…' }) {
+  return (
+    <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-5" role="status">
+      <Logo withText={false} className="scale-125" />
+      <div className="flex items-center gap-2 text-ink-3 text-sm"><Spinner className="w-4 h-4" />{label}</div>
+    </div>
+  )
+}
 
 export default function ProtectedRoute({ children }) {
-    const [status, setStatus] = useState('checking')
+  const { status } = useAuth()
+  const location = useLocation()
+  if (status === 'loading') return <FullScreenLoader />
+  if (status === 'anon') return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+  return children
+}
 
-    useEffect(() => {
-        getAuthUser()
-            .then(() => setStatus('auth'))
-            .catch(() => setStatus('unauth'))
-    }, [])
-
-    if (status === 'checking') {
-        return (
-            <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            </div>
-        )
-    }
-
-    if (status === 'unauth') {
-        return <Navigate to="/login" replace />
-    }
-
-    return children
+export function GuestOnly({ children }) {
+  const { status } = useAuth()
+  if (status === 'loading') return <FullScreenLoader />
+  if (status === 'authed') return <Navigate to="/dashboard" replace />
+  return children
 }

@@ -1,10 +1,7 @@
 import express from 'express'
-import { handleChat, generateQuiz, summarizeText } from '../controllers/aiController.js'
+import { handleChat } from '../controllers/aiController.js'
+import { asyncHandler } from '../middleware/http.js'
 
 const router = express.Router()
-
-router.post('/chat', handleChat)
-router.post('/quiz', generateQuiz)
-router.post('/summarize', summarizeText)
-
+router.post('/chat', asyncHandler(handleChat))
 export default router

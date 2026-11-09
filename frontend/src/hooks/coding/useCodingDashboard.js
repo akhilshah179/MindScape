@@ -7,7 +7,7 @@ export function useCodingDashboard(userId) {
   const [error, setError] = useState(null)
 
   const loadDashboard = useCallback(async () => {
-    if (!userId) return
+
     setLoading(true)
     try {
       const data = await fetchDashboard(userId)

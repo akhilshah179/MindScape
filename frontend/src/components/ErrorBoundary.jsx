@@ -1,61 +1,37 @@
-// src/components/ErrorBoundary.jsx
-// Wraps sections of your app so one crash doesn't kill everything.
-//
-// USAGE — wrap any major section in App.jsx or Dashboard.jsx:
-//
-//   import ErrorBoundary from './components/ErrorBoundary'
-//
-//   <ErrorBoundary>
-//     <GlobalChatPanel subjects={allSubjects} />
-//   </ErrorBoundary>
-//
-//   <ErrorBoundary label="Analytics">
-//     <AnalyticsDashboard />
-//   </ErrorBoundary>
-
 import { Component } from 'react'
+import { AlertTriangle, RotateCcw } from 'lucide-react'
 
+/** Catches render errors in a subtree so one crash doesn't blank the whole app. */
 export default class ErrorBoundary extends Component {
-    constructor(props) {
-        super(props)
-        this.state = { hasError: false, error: null }
-    }
+  state = { error: null }
 
-    static getDerivedStateFromError(error) {
-        return { hasError: true, error }
-    }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
 
-    componentDidCatch(error, info) {
-        // Log to console in dev — swap for Sentry/CloudWatch in production
-        console.error(`[ErrorBoundary: ${this.props.label || 'unnamed'}]`, error, info)
-    }
+  componentDidCatch(error, info) {
+    console.error(`[ErrorBoundary${this.props.label ? `: ${this.props.label}` : ''}]`, error, info?.componentStack)
+  }
 
-    handleReset = () => {
-        this.setState({ hasError: false, error: null })
-    }
-
-    render() {
-        if (this.state.hasError) {
-            return (
-                <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-center">
-                    <p className="text-2xl mb-2">⚠️</p>
-                    <p className="text-red-700 font-semibold text-sm mb-1">
-                        {this.props.label ? `${this.props.label} failed to load` : 'Something went wrong'}
-                    </p>
-                    <p className="text-red-400 text-xs mb-4">
-                        {this.state.error?.message || 'An unexpected error occurred'}
-                    </p>
-                    <button
-                        onClick={this.handleReset}
-                        className="text-xs font-medium px-4 py-2 rounded-xl bg-red-100
-              hover:bg-red-200 text-red-700 transition-colors"
-                    >
-                        Try again
-                    </button>
-                </div>
-            )
-        }
-
-        return this.props.children
-    }
+  render() {
+    const { error } = this.state
+    if (!error) return this.props.children
+    // A lazy chunk failing to load usually means a new version was deployed.
+    const isChunk = /Loading chunk|dynamically imported module|Failed to fetch/i.test(error.message || '')
+    return (
+      <div role="alert" className={this.props.label ? 'card p-6 text-center' : 'min-h-screen bg-canvas flex items-center justify-center p-6'}>
+        <div className="max-w-sm text-center">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-bad/10 flex items-center justify-center mb-4"><AlertTriangle className="w-5 h-5 text-bad" /></div>
+          <p className="text-ink font-semibold">{this.props.label ? `${this.props.label} failed to load` : 'Something went wrong'}</p>
+          <p className="text-ink-3 text-sm mt-1">{isChunk ? 'A newer version of MindScape is available.' : error.message || 'An unexpected error occurred.'}</p>
+          <button
+            onClick={() => (isChunk || !this.props.label ? window.location.reload() : this.setState({ error: null }))}
+            className="mt-5 inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-surface-2 border text-sm text-ink hover:bg-surface-3"
+          >
+            <RotateCcw className="w-4 h-4" /> {isChunk ? 'Reload' : 'Try again'}
+          </button>
+        </div>
+      </div>
+    )
+  }
 }

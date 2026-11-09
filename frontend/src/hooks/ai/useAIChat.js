@@ -1,357 +1,272 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import * as chatApi from '../../services/ai/chatApi'
 
+const STALE_MS = 30_000
+
 /**
- * High-performance hook for managing AI chat state.
- * Features:
- * - In-memory conversation caching (instant switching)
- * - Race-condition immunity with request sequencing
- * - Instant 0ms "New Chat" initialization
- * - Optimistic message delivery with reliable error fallbacks
+ * StudyMate chat state.
+ * - The server is the source of truth; a per-chat cache makes switching instant.
+ * - Switching chats aborts the previous fetch, so a slow response can never overwrite the current chat.
+ * - Streaming replies are routed by chatId, so switching away mid-reply doesn't corrupt either chat.
+ * - "New chat" is instant: the chat is created on the server only when the first message is sent.
  */
-export function useAIChat(userId) {
-    const navigate = useNavigate()
-    const { chatId: urlChatId } = useParams()
+export function useAIChat({ onError } = {}) {
+  const navigate = useNavigate()
+  const { chatId: urlChatId } = useParams()
 
-    const [chats, setChats] = useState([])
-    const [messages, setMessages] = useState([])
-    const [activeChatId, setActiveChatId] = useState(null)
-    const [isLoading, setIsLoading] = useState(false)
-    const [isSending, setIsSending] = useState(false)
-    const [chatsLoaded, setChatsLoaded] = useState(false)
-    const [searchQuery, setSearchQuery] = useState('')
-    const [searchResults, setSearchResults] = useState(null)
+  const [chats, setChats] = useState([])
+  const [chatsLoaded, setChatsLoaded] = useState(false)
+  const [activeChatId, setActiveChatId] = useState(urlChatId || null)
+  const [messagesByChat, setMessagesByChat] = useState({})
+  const [loadingChatId, setLoadingChatId] = useState(null)
+  const [sendingChatIds, setSendingChatIds] = useState(() => new Set())
+  const [pendingFile, setPendingFile] = useState(null) // { fileId, fileName } attached to the next message
+  const [query, setQuery] = useState('')
 
-    // Cache: Map<chatId, Message[]>
-    const messagesCacheRef = useRef(new Map())
-    // Active request tracker to prevent race conditions on fast switching
-    const activeReqIdRef = useRef(0)
+  const fetchedAt = useRef(new Map())
+  const fetchAbort = useRef(null)
+  const streamAborts = useRef(new Map())
+  const activeRef = useRef(activeChatId)
+  activeRef.current = activeChatId
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
+  const report = (msg) => onErrorRef.current?.(msg)
 
-    // ── Load chats on mount / user change ─────────────────────────────────────
-    useEffect(() => {
-        if (!userId) return
-        loadChats()
-    }, [userId])
+  const setChatMessages = useCallback((chatId, updater) => {
+    setMessagesByChat(prev => ({ ...prev, [chatId]: typeof updater === 'function' ? updater(prev[chatId] || []) : updater }))
+  }, [])
 
-    // ── Sync with URL param ───────────────────────────────────────────────────
-    useEffect(() => {
-        if (urlChatId && urlChatId !== activeChatId) {
-            selectChat(urlChatId)
-        } else if (!urlChatId) {
-            setActiveChatId(null)
-            setMessages([])
-        }
-    }, [urlChatId])
+  const patchChat = useCallback((chatId, patch) => {
+    setChats(prev => prev.map(c => (c.chatId === chatId ? { ...c, ...patch } : c)))
+  }, [])
 
-    // ── Load all chats ────────────────────────────────────────────────────────
-    const loadChats = useCallback(async () => {
-        if (!userId) return
-        try {
-            const data = await chatApi.getUserChats(userId)
-            setChats(data || [])
-        } catch (err) {
-            console.error('Failed to load chats:', err)
-            setChats([])
-        } finally {
-            setChatsLoaded(true)
-        }
-    }, [userId])
-
-    // ── Select a chat with instant cache & race-condition protection ───────────
-    const selectChat = useCallback(async (chatId) => {
-        if (!chatId) return
-        setActiveChatId(chatId)
-
-        // 1. Instant cache hit: render immediately (0ms delay)
-        const cached = messagesCacheRef.current.get(chatId)
-        if (cached && cached.length > 0) {
-            setMessages(cached)
-            setIsLoading(false)
-        } else {
-            setMessages([])
-            setIsLoading(true)
-        }
-
-        // 2. Fetch latest messages with request sequencing to prevent race conditions
-        const currentReqId = ++activeReqIdRef.current
-        try {
-            const msgs = await chatApi.getChatMessages(chatId, userId)
-            // Only apply if this request is still the active one
-            if (currentReqId === activeReqIdRef.current) {
-                setMessages(msgs || [])
-                messagesCacheRef.current.set(chatId, msgs || [])
-            }
-        } catch (err) {
-            console.error('Failed to load messages:', err)
-            if (currentReqId === activeReqIdRef.current && !cached) {
-                setMessages([])
-            }
-        } finally {
-            if (currentReqId === activeReqIdRef.current) {
-                setIsLoading(false)
-            }
-        }
-    }, [userId])
-
-    // ── Instant "New Chat" (0ms UI transition, no dummy DB writes) ────────────
-    const startNewChat = useCallback(() => {
-        setActiveChatId(null)
-        setMessages([])
-        navigate('/ai')
-    }, [navigate])
-
-    // ── Explicit createChat (when needed) ─────────────────────────────────────
-    const createChat = useCallback(async (options = {}) => {
-        if (!userId) return null
-        try {
-            const data = await chatApi.createChat(userId, options)
-            const newChat = {
-                userId,
-                chatId: data.chatId,
-                title: data.title || 'New Chat',
-                fileId: data.fileId || null,
-                fileName: data.fileName || null,
-                createdAt: data.createdAt,
-                updatedAt: data.createdAt,
-                messageCount: 0,
-                isPinned: false,
-                tags: []
-            }
-            setChats(prev => [newChat, ...prev.filter(c => c.chatId !== data.chatId)])
-            setActiveChatId(data.chatId)
-            setMessages([])
-            messagesCacheRef.current.set(data.chatId, [])
-            navigate(`/ai/chat/${data.chatId}`)
-            return data.chatId
-        } catch (err) {
-            console.error('Failed to create chat:', err)
-            return null
-        }
-    }, [userId, navigate])
-
-    // ── Send a message (with instant optimistic updates) ───────────────────────
-    const sendMsg = useCallback(async (content, pdfContext = null, fileId = null, fileName = null) => {
-        const text = content?.trim()
-        if (!text || !userId || isSending) return
-
-        let targetChatId = activeChatId
-        let isNewConversation = false
-
-        // If at /ai (no active chat), generate chat ID client-side immediately
-        if (!targetChatId) {
-            targetChatId = crypto.randomUUID()
-            isNewConversation = true
-            setActiveChatId(targetChatId)
-        }
-
-        const now = new Date().toISOString()
-        const tempMsgId = `temp_${Date.now()}_user`
-
-        const tempUserMsg = {
-            chatId: targetChatId,
-            messageId: tempMsgId,
-            userId,
-            role: 'user',
-            content: text,
-            timestamp: now
-        }
-
-        // Optimistic UI updates
-        setMessages(prev => {
-            const next = [...prev, tempUserMsg]
-            messagesCacheRef.current.set(targetChatId, next)
-            return next
-        })
-        setIsSending(true)
-
-        // Optimistically add chat to sidebar if new
-        if (isNewConversation) {
-            const newChatCard = {
-                userId,
-                chatId: targetChatId,
-                title: fileName ? `PDF: ${fileName}` : text.slice(0, 35) + (text.length > 35 ? '...' : ''),
-                fileId: fileId || null,
-                fileName: fileName || null,
-                createdAt: now,
-                updatedAt: now,
-                messageCount: 1,
-                isPinned: false,
-                tags: []
-            }
-            setChats(prev => [newChatCard, ...prev])
-            navigate(`/ai/chat/${targetChatId}`, { replace: true })
-        }
-
-        try {
-            const data = await chatApi.sendMessage(
-                targetChatId,
-                userId,
-                text,
-                pdfContext,
-                fileId,
-                fileName
-            )
-
-            const aiMsg = {
-                chatId: targetChatId,
-                messageId: data.messageId,
-                userId,
-                role: 'assistant',
-                content: data.reply,
-                timestamp: data.timestamp || new Date().toISOString()
-            }
-
-            // Append assistant response to messages and cache
-            setMessages(prev => {
-                const next = [...prev, aiMsg]
-                messagesCacheRef.current.set(targetChatId, next)
-                return next
-            })
-
-            // Update chat title and timestamp in sidebar
-            setChats(prev => prev.map(c =>
-                c.chatId === targetChatId
-                    ? {
-                        ...c,
-                        title: data.title || c.title,
-                        updatedAt: data.timestamp || new Date().toISOString(),
-                        messageCount: (c.messageCount || 0) + 2,
-                        fileId: fileId || c.fileId,
-                        fileName: fileName || c.fileName
-                    }
-                    : c
-            ))
-
-            return data.reply
-        } catch (err) {
-            console.error('Failed to send message:', err)
-            const errorText = err.response?.data?.error || err.message || 'Failed to get AI response.'
-            const errorMsg = {
-                chatId: targetChatId,
-                messageId: `error_${Date.now()}`,
-                userId,
-                role: 'assistant',
-                content: `⚠️ ${errorText}. Please try again.`,
-                timestamp: new Date().toISOString()
-            }
-            setMessages(prev => {
-                const next = [...prev, errorMsg]
-                messagesCacheRef.current.set(targetChatId, next)
-                return next
-            })
-            return null
-        } finally {
-            setIsSending(false)
-        }
-    }, [activeChatId, userId, isSending, navigate])
-
-    // ── Rename a chat ─────────────────────────────────────────────────────────
-    const renameChatFn = useCallback(async (chatId, title) => {
-        if (!userId || !title.trim()) return
-        const trimmed = title.trim()
-        // Optimistic rename
-        setChats(prev => prev.map(c =>
-            c.chatId === chatId ? { ...c, title: trimmed, updatedAt: new Date().toISOString() } : c
-        ))
-        try {
-            await chatApi.renameChat(userId, chatId, trimmed)
-        } catch (err) {
-            console.error('Failed to rename chat:', err)
-            loadChats() // Rollback on error
-        }
-    }, [userId, loadChats])
-
-    // ── Delete a chat ─────────────────────────────────────────────────────────
-    const deleteChatFn = useCallback(async (chatId) => {
-        if (!userId) return
-        // Optimistic delete
-        messagesCacheRef.current.delete(chatId)
-        setChats(prev => prev.filter(c => c.chatId !== chatId))
-        if (activeChatId === chatId) {
-            setActiveChatId(null)
-            setMessages([])
-            navigate('/ai')
-        }
-        try {
-            await chatApi.deleteChat(userId, chatId)
-        } catch (err) {
-            console.error('Failed to delete chat:', err)
-            loadChats() // Rollback on error
-        }
-    }, [userId, activeChatId, navigate, loadChats])
-
-    // ── Search chats ──────────────────────────────────────────────────────────
-    const searchChatsFn = useCallback(async (query) => {
-        setSearchQuery(query)
-        if (!query.trim()) {
-            setSearchResults(null)
-            return
-        }
-        if (!userId) return
-        try {
-            const results = await chatApi.searchChats(userId, query)
-            setSearchResults(results || [])
-        } catch (err) {
-            console.error('Failed to search chats:', err)
-            setSearchResults([])
-        }
-    }, [userId])
-
-    // ── Group chats by date category ──────────────────────────────────────────
-    const displayChats = searchResults !== null ? searchResults : chats
-    const groupedChats = groupChatsByDate(displayChats)
-
-    return {
-        chats: displayChats,
-        groupedChats,
-        messages,
-        activeChatId,
-        isLoading,
-        isSending,
-        chatsLoaded,
-        searchQuery,
-        isSearching: searchResults !== null,
-        startNewChat,
-        createChat,
-        selectChat: (chatId) => {
-            navigate(`/ai/chat/${chatId}`)
-        },
-        sendMessage: sendMsg,
-        renameChat: renameChatFn,
-        deleteChat: deleteChatFn,
-        searchChats: searchChatsFn,
-        clearSearch: () => { setSearchQuery(''); setSearchResults(null) },
-        refreshChats: loadChats,
+  // ── Load chat list once ──
+  const loadChats = useCallback(async () => {
+    try {
+      setChats(await chatApi.getUserChats())
+    } catch (err) {
+      report(`Couldn't load your chats: ${err.message}`)
+    } finally {
+      setChatsLoaded(true)
     }
+  }, [])
+  useEffect(() => { loadChats() }, [loadChats])
+
+  // ── Open the chat in the URL ──
+  useEffect(() => {
+    const id = urlChatId || null
+    setActiveChatId(id)
+    fetchAbort.current?.abort()
+    if (!id) return
+    const last = fetchedAt.current.get(id)
+    if (last && Date.now() - last < STALE_MS) return // fresh in cache
+    const ctrl = new AbortController()
+    fetchAbort.current = ctrl
+    setLoadingChatId(id)
+    chatApi.getChat(id, { signal: ctrl.signal })
+      .then(({ chat, messages }) => {
+        fetchedAt.current.set(id, Date.now())
+        // Never clobber an in-flight optimistic exchange
+        setMessagesByChat(prev => (sendingRef.current.has(id) ? prev : { ...prev, [id]: messages }))
+        setChats(prev => (prev.some(c => c.chatId === id) ? prev.map(c => (c.chatId === id ? { ...c, ...chat } : c)) : [chat, ...prev]))
+      })
+      .catch(err => {
+        if (err.cancelled) return
+        if (err.status === 404) { report('That chat no longer exists.'); navigate('/ai', { replace: true }) }
+        else report(`Couldn't load this chat: ${err.message}`)
+      })
+      .finally(() => { if (fetchAbort.current === ctrl) setLoadingChatId(null) })
+    return () => ctrl.abort()
+  }, [urlChatId, navigate])
+
+  const sendingRef = useRef(sendingChatIds)
+  sendingRef.current = sendingChatIds
+  const markSending = (chatId, on) => setSendingChatIds(prev => {
+    const next = new Set(prev)
+    if (on) next.add(chatId); else next.delete(chatId)
+    return next
+  })
+
+  const startNewChat = useCallback(() => {
+    setPendingFile(null)
+    navigate('/ai')
+  }, [navigate])
+
+  /** Send a message to the active chat (creating it first if this is a new conversation). */
+  const sendMessage = useCallback(async (rawContent, { fileId: explicitFileId } = {}) => {
+    const content = rawContent?.trim()
+    if (!content) return
+    let chatId = activeRef.current
+    // undefined = keep the chat's current document; null = detach; string = attach
+    const hasChange = explicitFileId !== undefined || pendingFile !== null
+    const attach = explicitFileId !== undefined ? explicitFileId : (pendingFile?.fileId ?? null)
+    if (chatId && sendingRef.current.has(chatId)) return
+
+    if (!chatId) {
+      try {
+        const chat = await chatApi.createChat(null, { fileId: attach || undefined })
+        chatId = chat.chatId
+        fetchedAt.current.set(chatId, Date.now())
+        setChats(prev => [chat, ...prev])
+        setMessagesByChat(prev => ({ ...prev, [chatId]: [] }))
+        activeRef.current = chatId
+        navigate(`/ai/chat/${chatId}`, { replace: true })
+      } catch (err) {
+        report(`Couldn't start a chat: ${err.message}`)
+        return
+      }
+    }
+
+    const tempUser = { messageId: `tmp-u-${Date.now()}`, role: 'user', content, timestamp: new Date().toISOString(), pending: true }
+    const tempAi = { messageId: `tmp-a-${Date.now()}`, role: 'assistant', content: '', timestamp: new Date().toISOString(), streaming: true }
+    setChatMessages(chatId, prev => [...prev.filter(m => !m.failed), tempUser, tempAi])
+    markSending(chatId, true)
+    setPendingFile(null)
+
+    // Batch token updates to one render per frame
+    let buffer = ''
+    let raf = 0
+    const flush = () => {
+      raf = 0
+      const text = buffer
+      setChatMessages(chatId, prev => prev.map(m => (m.messageId === tempAi.messageId ? { ...m, content: text } : m)))
+    }
+    const ctrl = new AbortController()
+    streamAborts.current.set(chatId, ctrl)
+
+    try {
+      const res = await chatApi.sendMessage(chatId, {
+        content,
+        fileId: hasChange ? attach : undefined,
+        signal: ctrl.signal,
+        onToken: (t) => { buffer += t; if (!raf) raf = requestAnimationFrame(flush) }
+      })
+      cancelAnimationFrame(raf)
+      setChatMessages(chatId, prev => prev.map(m =>
+        m.messageId === tempUser.messageId ? res.userMessage : m.messageId === tempAi.messageId ? res.assistantMessage : m))
+      setChats(prev => {
+        const cur = prev.find(c => c.chatId === chatId)
+        const updated = { ...cur, chatId, title: res.title || cur?.title, fileId: res.fileId, fileName: res.fileName, updatedAt: res.assistantMessage.timestamp, messageCount: (cur?.messageCount || 0) + 2 }
+        return [updated, ...prev.filter(c => c.chatId !== chatId)]
+      })
+      fetchedAt.current.set(chatId, Date.now())
+      // The server refines the title in the background; pick it up shortly after.
+      if ((chats.find(c => c.chatId === chatId)?.messageCount || 0) === 0) {
+        setTimeout(() => chatApi.getUserChats().then(list => {
+          const fresh = list.find(c => c.chatId === chatId)
+          if (fresh) patchChat(chatId, { title: fresh.title })
+        }).catch(() => {}), 2500)
+      }
+    } catch (err) {
+      cancelAnimationFrame(raf)
+      // Server only saves an exchange after a successful reply, so nothing was persisted.
+      setChatMessages(chatId, prev => prev
+        .filter(m => m.messageId !== tempAi.messageId)
+        .map(m => (m.messageId === tempUser.messageId ? { ...m, pending: false, failed: true, error: err.cancelled ? 'Stopped' : err.message } : m)))
+      if (!err.cancelled) report(err.message)
+    } finally {
+      streamAborts.current.delete(chatId)
+      markSending(chatId, false)
+    }
+  }, [navigate, pendingFile, setChatMessages, patchChat, chats])
+
+  const stop = useCallback(() => {
+    const id = activeRef.current
+    if (id) streamAborts.current.get(id)?.abort()
+  }, [])
+
+  const retry = useCallback((failedMsg) => {
+    const id = activeRef.current
+    if (!id) return
+    setChatMessages(id, prev => prev.filter(m => m.messageId !== failedMsg.messageId))
+    sendMessage(failedMsg.content)
+  }, [sendMessage, setChatMessages])
+
+  /** Attach a document to the current (or next) conversation; null detaches. */
+  const attachFile = useCallback((file) => {
+    setPendingFile(file ? { fileId: file.fileId, fileName: file.originalName || file.name } : { fileId: null, fileName: null })
+  }, [])
+
+  const renameChat = useCallback(async (chatId, title) => {
+    const t = title.trim()
+    if (!t) return
+    const before = chats.find(c => c.chatId === chatId)?.title
+    patchChat(chatId, { title: t })
+    try { await chatApi.renameChat(null, chatId, t) } catch (err) { patchChat(chatId, { title: before }); report(`Rename failed: ${err.message}`) }
+  }, [chats, patchChat])
+
+  const togglePin = useCallback(async (chatId) => {
+    const cur = chats.find(c => c.chatId === chatId)
+    patchChat(chatId, { isPinned: !cur?.isPinned })
+    try { await chatApi.pinChat(chatId, !cur?.isPinned) } catch (err) { patchChat(chatId, { isPinned: cur?.isPinned }); report(err.message) }
+  }, [chats, patchChat])
+
+  const deleteChat = useCallback(async (chatId) => {
+    const snapshot = chats
+    setChats(prev => prev.filter(c => c.chatId !== chatId))
+    if (activeRef.current === chatId) navigate('/ai', { replace: true })
+    try {
+      await chatApi.deleteChat(null, chatId)
+      setMessagesByChat(prev => { const n = { ...prev }; delete n[chatId]; return n })
+      fetchedAt.current.delete(chatId)
+    } catch (err) {
+      setChats(snapshot)
+      report(`Delete failed: ${err.message}`)
+    }
+  }, [chats, navigate])
+
+  const activeChat = chats.find(c => c.chatId === activeChatId) || null
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = q ? chats.filter(c => (c.title || '').toLowerCase().includes(q) || (c.fileName || '').toLowerCase().includes(q)) : chats
+    return [...list].sort((a, b) => (Number(b.isPinned) - Number(a.isPinned)) || (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+  }, [chats, query])
+
+  // Effective document: pending choice for next message overrides the chat's current one
+  const attachedFile = pendingFile
+    ? (pendingFile.fileId ? pendingFile : null)
+    : activeChat?.fileId ? { fileId: activeChat.fileId, fileName: activeChat.fileName } : null
+
+  return {
+    chats: visible,
+    groupedChats: groupChatsByDate(visible),
+    chatsLoaded,
+    activeChatId,
+    activeChat,
+    messages: (activeChatId && messagesByChat[activeChatId]) || [],
+    isLoading: Boolean(activeChatId) && loadingChatId === activeChatId && !messagesByChat[activeChatId]?.length,
+    isSending: Boolean(activeChatId) && sendingChatIds.has(activeChatId),
+    attachedFile,
+    attachFile,
+    searchQuery: query,
+    searchChats: setQuery,
+    clearSearch: () => setQuery(''),
+    startNewChat,
+    selectChat: (id) => navigate(`/ai/chat/${id}`),
+    sendMessage,
+    stop,
+    retry,
+    renameChat,
+    togglePin,
+    deleteChat,
+    refreshChats: loadChats,
+  }
 }
 
-// ─── Helper: group chats by date category ─────────────────────────────────────
 function groupChatsByDate(chats) {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
-    const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7)
-    const monthAgo = new Date(today); monthAgo.setDate(monthAgo.getDate() - 30)
-
-    const groups = {
-        'Today': [],
-        'Yesterday': [],
-        'Previous 7 Days': [],
-        'Previous 30 Days': [],
-        'Older': [],
-    }
-
-    for (const chat of chats || []) {
-        const d = new Date(chat.updatedAt || chat.createdAt || 0)
-        if (d >= today) groups['Today'].push(chat)
-        else if (d >= yesterday) groups['Yesterday'].push(chat)
-        else if (d >= weekAgo) groups['Previous 7 Days'].push(chat)
-        else if (d >= monthAgo) groups['Previous 30 Days'].push(chat)
-        else groups['Older'].push(chat)
-    }
-
-    return Object.fromEntries(
-        Object.entries(groups).filter(([, items]) => items.length > 0)
-    )
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const day = 86400000
+  const groups = { Pinned: [], Today: [], Yesterday: [], 'Previous 7 days': [], 'Previous 30 days': [], Older: [] }
+  for (const c of chats) {
+    if (c.isPinned) { groups.Pinned.push(c); continue }
+    const d = new Date(c.updatedAt || c.createdAt || 0)
+    if (d >= today) groups.Today.push(c)
+    else if (d >= today - day) groups.Yesterday.push(c)
+    else if (d >= today - 7 * day) groups['Previous 7 days'].push(c)
+    else if (d >= today - 30 * day) groups['Previous 30 days'].push(c)
+    else groups.Older.push(c)
+  }
+  return Object.fromEntries(Object.entries(groups).filter(([, v]) => v.length))
 }

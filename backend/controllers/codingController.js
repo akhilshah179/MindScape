@@ -1,435 +1,200 @@
-import { getProblems, getProblemById } from '../services/problemsData.js'
-import { runCode as judge0Run, runTestCases, getLanguageId, getVerdict } from '../services/judge0Service.js'
-import { reviewCode, generateHint, debugCode, generateInterviewQuestions, conductMockInterview } from '../services/aiReviewService.js'
-import { awardXP, updateStreak, getProfile, updateLanguageUsage, updateHeatmap, XP_REWARDS } from '../services/gamificationService.js'
-import { updateContestScore } from './contestController.js'
-import dynamoDb from '../config/dynamoDb.js'
-import { PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import crypto from 'crypto'
+import { PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb'
+import dynamoDb from '../config/dynamoDb.js'
+import { getProblems, getProblemById } from '../services/problemsData.js'
+import { runCode, runTestCases, SUPPORTED_LANGUAGES } from '../services/judge0Service.js'
+import { reviewCode, generateHint, debugCode, generateInterviewQuestions, conductMockInterview } from '../services/aiReviewService.js'
+import {
+  getProfile, recordAcceptedSubmission, markProblemAttempt, incrementCounter, getAllBadges, publicProfile
+} from '../services/gamificationService.js'
+import { recordContestSolve } from './contestController.js'
+import { HttpError, requireString } from '../middleware/http.js'
 
 const SUBMISSIONS_TABLE = 'studymate_submissions'
+const VISIBLE_TESTS = 2
+const MAX_CODE_LENGTH = 50_000
 
-// GET /problems — list problems with optional filters
+function validateCode(body) {
+  const code = requireString(body.code, 'code', { max: MAX_CODE_LENGTH })
+  const language = String(body.language || '').toLowerCase()
+  if (!SUPPORTED_LANGUAGES.includes(language)) throw new HttpError(400, `language must be one of: ${SUPPORTED_LANGUAGES.join(', ')}`)
+  return { code, language }
+}
+
+function loadProblem(id) {
+  const problem = getProblemById(id)
+  if (!problem) throw new HttpError(404, 'Problem not found')
+  return problem
+}
+
+/** Public problem view: visible examples only. Hidden test cases never leave the server. */
+function publicProblem(p) {
+  const { testCases, ...rest } = p
+  return {
+    ...rest,
+    sampleTests: testCases.slice(0, VISIBLE_TESTS),
+    totalTests: testCases.length
+  }
+}
+
+/** Hide input/expected/actual for hidden cases; keep verdicts and resource usage. */
+function redactResults(results) {
+  return results.map((r, i) => (i < VISIBLE_TESTS ? r : {
+    testCase: r.testCase, verdict: r.verdict, passed: r.passed, time: r.time, memory: r.memory, hidden: true,
+    // Compiler errors are about the user's code, not the test, so they're safe to show.
+    compile_output: r.verdict === 'Compilation Error' ? r.compile_output : null,
+    stderr: r.verdict === 'Runtime Error' ? (r.stderr || '').split('\n').slice(-5).join('\n') : null
+  }))
+}
+
+async function solvedSet(userId) {
+  const profile = await getProfile(userId)
+  return new Set(profile.solvedProblems || [])
+}
+
+// GET /problems
 export const listProblems = async (req, res) => {
-  try {
-    const { difficulty, category, search } = req.query
-    const filtered = getProblems({ difficulty, category, search })
-
-    const problemList = filtered.map(p => ({
-      id: p.id,
-      title: p.title,
-      difficulty: p.difficulty,
-      category: p.category,
-      timeLimit: p.timeLimit
-    }))
-
-    res.json({
-      total: problemList.length,
-      problems: problemList
-    })
-  } catch (err) {
-    console.error('List Problems Error:', err)
-    res.status(500).json({ error: 'Failed to fetch problems' })
-  }
+  const { difficulty, category, search } = req.query
+  const solved = await solvedSet(req.user.userId)
+  const list = getProblems({ difficulty, category, search }).map(p => ({
+    id: p.id, title: p.title, difficulty: p.difficulty, category: p.category, timeLimit: p.timeLimit, solved: solved.has(p.id)
+  }))
+  res.json({ total: list.length, problems: list })
 }
 
-// GET /problems/:id — get full problem details
+// GET /problems/:id
 export const getOneProblem = async (req, res) => {
-  try {
-    const { id } = req.params
-    const problem = getProblemById(id)
-
-    if (!problem) {
-      return res.status(404).json({ error: 'Problem not found' })
-    }
-
-    res.json(problem)
-  } catch (err) {
-    console.error('Get Problem Error:', err)
-    res.status(500).json({ error: 'Failed to fetch problem' })
-  }
+  const problem = loadProblem(req.params.id)
+  // First open is recorded server-side so the speed badge can't be spoofed by the client.
+  await markProblemAttempt(req.user.userId, problem.id)
+  res.json(publicProblem(problem))
 }
 
-// POST /run — execute code against visible test cases only (no save)
+// POST /run — visible tests only, or custom stdin. Not saved, no rewards.
 export const executeCode = async (req, res) => {
-  try {
-    const { code, language, problemId, stdin } = req.body
+  const { code, language } = validateCode(req.body)
+  const { problemId, stdin } = req.body
 
-    if (!code || !language) {
-      return res.status(400).json({ error: 'Code and language are required' })
+  if (problemId) {
+    const problem = loadProblem(problemId)
+    if (typeof stdin === 'string') {
+      // Custom input runs through the same driver as tests, so users write only the function.
+      const { wrapCode } = await import('../services/codeWrapper.js')
+      return res.json({ mode: 'custom', ...(await runCode(wrapCode(code, language, problem.driverMeta), language, stdin.slice(0, 100_000))) })
     }
-
-    // If a specific stdin is provided, run against that
-    if (stdin !== undefined) {
-      const result = await judge0Run(code, language, stdin)
-      return res.json(result)
-    }
-
-    // Otherwise run against visible test cases (from examples)
-    const problem = getProblemById(problemId)
-    if (!problem) {
-      return res.status(404).json({ error: 'Problem not found' })
-    }
-
-    // Use only the first 2 test cases for "Run" (visible ones)
-    const visibleTests = problem.testCases.slice(0, 2)
-    const results = await runTestCases(code, language, visibleTests, problem.timeLimit, problem.driverMeta)
-
-    res.json(results)
-  } catch (err) {
-    console.error('Execute Code Error:', err.message)
-    res.status(500).json({ error: 'Failed to execute code' })
+    const results = await runTestCases(code, language, problem.testCases.slice(0, VISIBLE_TESTS), problem.timeLimit, problem.driverMeta)
+    return res.json({ mode: 'tests', ...results })
   }
+  if (typeof stdin !== 'string') throw new HttpError(400, 'Provide a problemId or stdin.')
+  res.json({ mode: 'custom', ...(await runCode(code, language, stdin.slice(0, 100_000))) })
 }
 
-// POST /submit — run against ALL test cases, save submission, award XP
+// POST /submit — all tests, persisted, rewards on first Accepted.
 export const submitCode = async (req, res) => {
-  try {
-    const { userId, problemId, language, code, contestId } = req.body
+  const userId = req.user.userId
+  const { code, language } = validateCode(req.body)
+  const problem = loadProblem(req.body.problemId)
+  const contestId = req.body.contestId ? String(req.body.contestId) : null
 
-    if (!userId || !problemId || !language || !code) {
-      return res.status(400).json({ error: 'userId, problemId, language, and code are required' })
-    }
-
-    const problem = getProblemById(problemId)
-    if (!problem) {
-      return res.status(404).json({ error: 'Problem not found' })
-    }
-
-    const startTime = Date.now()
-
-    // Run against ALL test cases
-    const results = await runTestCases(code, language, problem.testCases, problem.timeLimit, problem.driverMeta)
-
-    const endTime = Date.now()
-    const timeTaken = endTime - startTime
-
-    const verdict = results.allPassed ? 'Accepted' : 'Failed'
-    const submissionId = crypto.randomUUID()
-
-    // Save submission to DynamoDB
-    const submission = {
-      submissionId,
-      userId,
-      problemId,
-      problemTitle: problem.title,
-      language,
-      code,
-      verdict,
-      totalTests: results.totalTests,
-      passedTests: results.passedTests,
-      results: results.results,
-      timeTaken,
-      difficulty: problem.difficulty,
-      timestamp: new Date().toISOString()
-    }
-
-    await dynamoDb.send(new PutCommand({
-      TableName: SUBMISSIONS_TABLE,
-      Item: submission
-    }))
-
-    let gamificationResult = null
-    let contestResult = null
-
-    // Award XP and update stats on Accepted
-    if (verdict === 'Accepted') {
-      // 1. If part of an active contest, update contest score & leaderboard
-      if (contestId) {
-        try {
-          contestResult = await updateContestScore(contestId, userId, problemId, problem.difficulty)
-        } catch (cErr) {
-          console.warn('Contest score update failed:', cErr.message)
-        }
-      }
-
-      // 2. Prevent duplicate XP awards for repeatedly submitting already-solved problems
-      const prevSubmissions = await dynamoDb.send(new QueryCommand({
-        TableName: SUBMISSIONS_TABLE,
-        KeyConditionExpression: 'userId = :uid',
-        ExpressionAttributeValues: { ':uid': userId }
-      })).catch(() => ({ Items: [] }))
-
-      const alreadySolved = (prevSubmissions.Items || []).some(s =>
-        s.problemId === problemId && s.verdict === 'Accepted' && s.submissionId !== submissionId
-      )
-
-      if (!alreadySolved) {
-        const xpAmount = XP_REWARDS[problem.difficulty] || 50
-
-        gamificationResult = await awardXP(userId, xpAmount, `Solved ${problem.title}`, {
-          problemId,
-          difficulty: problem.difficulty,
-          language
-        })
-
-        // Update difficulty-specific solve count
-        const diffKey = `${problem.difficulty.toLowerCase()}Solved`
-        const updateExpr = `SET totalSolved = if_not_exists(totalSolved, :zero) + :one, ${diffKey} = if_not_exists(${diffKey}, :zero) + :one, updatedAt = :now`
-
-        await dynamoDb.send(new UpdateCommand({
-          TableName: 'studymate_gamification',
-          Key: { userId },
-          UpdateExpression: updateExpr,
-          ExpressionAttributeValues: {
-            ':zero': 0,
-            ':one': 1,
-            ':now': new Date().toISOString()
-          }
-        }))
-      }
-
-      // Check if fast solve (under 5 minutes)
-      if (timeTaken < 300000) {
-        await dynamoDb.send(new UpdateCommand({
-          TableName: 'studymate_gamification',
-          Key: { userId },
-          UpdateExpression: 'SET fastSolve = :fs',
-          ExpressionAttributeValues: { ':fs': true }
-        })).catch(() => {})
-      }
-
-      // Update streak, heatmap, and language usage
-      await Promise.all([
-        updateStreak(userId).catch(() => {}),
-        updateHeatmap(userId).catch(() => {}),
-        updateLanguageUsage(userId, language).catch(() => {})
-      ])
-    }
-
-    res.json({
-      submissionId,
-      verdict,
-      totalTests: results.totalTests,
-      passedTests: results.passedTests,
-      results: results.results,
-      timeTaken,
-      gamification: gamificationResult,
-      contest: contestResult
-    })
-  } catch (err) {
-    console.error('Submit Code Error:', err.message)
-    res.status(500).json({ error: 'Failed to submit code' })
+  const results = await runTestCases(code, language, problem.testCases, problem.timeLimit, problem.driverMeta)
+  const now = new Date().toISOString()
+  // Time-prefixed sort key -> submissions come back in chronological order.
+  const submissionId = `${now}#${crypto.randomUUID()}`
+  const submission = {
+    userId, submissionId, problemId: problem.id, problemTitle: problem.title, difficulty: problem.difficulty,
+    language, code, verdict: results.verdict, totalTests: results.totalTests, passedTests: results.passedTests,
+    runtime: results.maxTime, memory: results.maxMemory, results: redactResults(results.results),
+    contestId, timestamp: now
   }
+  await dynamoDb.send(new PutCommand({ TableName: SUBMISSIONS_TABLE, Item: submission }))
+
+  let gamification = null
+  let contest = null
+  if (results.allPassed) {
+    gamification = await recordAcceptedSubmission(userId, problem, language)
+    if (contestId) contest = await recordContestSolve(contestId, userId, problem)
+  }
+
+  res.json({
+    submissionId, verdict: results.verdict, totalTests: results.totalTests, passedTests: results.passedTests,
+    runtime: results.maxTime, memory: results.maxMemory, results: submission.results, gamification, contest
+  })
 }
 
-// GET /submissions/:userId — fetch user submissions
+// GET /submissions[?problemId=]
 export const getUserSubmissions = async (req, res) => {
-  try {
-    const { userId } = req.params
-    const { problemId } = req.query
-
-    let filterExpression = undefined
-    let expressionAttributeValues = { ':uid': userId }
-    let expressionAttributeNames = undefined
-
-    const params = {
-      TableName: SUBMISSIONS_TABLE,
-      KeyConditionExpression: 'userId = :uid',
-      ExpressionAttributeValues: expressionAttributeValues,
-      ScanIndexForward: false
-    }
-
-    if (problemId) {
-      params.FilterExpression = 'problemId = :pid'
-      params.ExpressionAttributeValues[':pid'] = problemId
-    }
-
-    const data = await dynamoDb.send(new QueryCommand(params))
-
-    res.json({
-      total: (data.Items || []).length,
-      submissions: data.Items || []
-    })
-  } catch (err) {
-    console.error('Get Submissions Error:', err)
-    res.status(500).json({ error: 'Failed to fetch submissions' })
+  const params = {
+    TableName: SUBMISSIONS_TABLE,
+    KeyConditionExpression: 'userId = :uid',
+    ExpressionAttributeValues: { ':uid': req.user.userId },
+    ScanIndexForward: false,
+    Limit: Math.min(Number(req.query.limit) || 100, 200)
   }
+  if (req.query.problemId) {
+    params.FilterExpression = 'problemId = :pid'
+    params.ExpressionAttributeValues[':pid'] = String(req.query.problemId)
+    delete params.Limit // DynamoDB applies Limit before the filter
+  }
+  const data = await dynamoDb.send(new QueryCommand(params))
+  res.json({ total: data.Items.length, submissions: data.Items })
 }
 
-// POST /ai/review — AI code review
 export const getAIReview = async (req, res) => {
-  try {
-    const { code, language, problemTitle } = req.body
-
-    if (!code || !language) {
-      return res.status(400).json({ error: 'Code and language are required' })
-    }
-
-    const review = await reviewCode(code, language, problemTitle || 'Unknown Problem')
-    res.json(review)
-  } catch (err) {
-    console.error('AI Review Error:', err.message)
-    res.status(500).json({ error: 'Failed to generate AI review' })
-  }
+  const { code, language } = validateCode(req.body)
+  res.json(await reviewCode(code, language, String(req.body.problemTitle || 'Unknown Problem').slice(0, 200)))
 }
 
-// POST /ai/hint — get AI hint for a problem
 export const getAIHint = async (req, res) => {
-  try {
-    const { problemId, hintLevel } = req.body
-
-    if (!problemId) {
-      return res.status(400).json({ error: 'problemId is required' })
-    }
-
-    const problem = getProblemById(problemId)
-    if (!problem) {
-      return res.status(404).json({ error: 'Problem not found' })
-    }
-
-    const level = Math.min(Math.max(hintLevel || 1, 1), 3)
-    const hint = await generateHint(problem.description, problem.title, problem.constraints, level)
-
-    res.json(hint)
-  } catch (err) {
-    console.error('AI Hint Error:', err.message)
-    res.status(500).json({ error: 'Failed to generate AI hint' })
-  }
+  const problem = loadProblem(req.body.problemId)
+  const level = Math.min(Math.max(Number(req.body.hintLevel) || 1, 1), 3)
+  res.json(await generateHint(problem.description, problem.title, problem.constraints, level))
 }
 
-// POST /ai/debug — AI code debugging
 export const getAIDebug = async (req, res) => {
-  try {
-    const { code, language, error } = req.body
-
-    if (!code || !language) {
-      return res.status(400).json({ error: 'Code and language are required' })
-    }
-
-    // Track debug usage for badges
-    if (req.body.userId) {
-      try {
-        await dynamoDb.send(new (await import('@aws-sdk/lib-dynamodb')).UpdateCommand({
-          TableName: 'studymate_gamification',
-          Key: { userId: req.body.userId },
-          UpdateExpression: 'SET debugUses = if_not_exists(debugUses, :zero) + :one',
-          ExpressionAttributeValues: { ':zero': 0, ':one': 1 }
-        }))
-      } catch (e) {
-        // Non-critical, continue
-      }
-    }
-
-    const analysis = await debugCode(code, language, error || 'No error provided')
-    res.json(analysis)
-  } catch (err) {
-    console.error('AI Debug Error:', err.message)
-    res.status(500).json({ error: 'Failed to generate AI debug analysis' })
-  }
+  const { code, language } = validateCode(req.body)
+  const analysis = await debugCode(code, language, String(req.body.error || 'No error provided'))
+  await incrementCounter(req.user.userId, 'debugUses')
+  res.json(analysis)
 }
 
-// POST /ai/interview — generate interview questions
 export const getInterviewQuestions = async (req, res) => {
-  try {
-    const { topic, count } = req.body
-
-    if (!topic) {
-      return res.status(400).json({ error: 'Topic is required' })
-    }
-
-    const questions = await generateInterviewQuestions(topic, count || 5)
-    res.json({ topic, questions })
-  } catch (err) {
-    console.error('Interview Questions Error:', err.message)
-    res.status(500).json({ error: 'Failed to generate interview questions' })
-  }
+  const topic = requireString(req.body.topic, 'topic', { max: 100 })
+  res.json({ topic, questions: await generateInterviewQuestions(topic, req.body.count) })
 }
 
-// POST /ai/mock-interview — conduct mock interview
 export const getMockInterview = async (req, res) => {
-  try {
-    const { topic, messages } = req.body
-
-    if (!topic) {
-      return res.status(400).json({ error: 'Topic is required' })
-    }
-
-    const response = await conductMockInterview(topic, messages || [])
-    res.json(response)
-  } catch (err) {
-    console.error('Mock Interview Error:', err.message)
-    res.status(500).json({ error: 'Failed to conduct mock interview' })
-  }
+  const topic = requireString(req.body.topic, 'topic', { max: 100 })
+  res.json(await conductMockInterview(topic, Array.isArray(req.body.messages) ? req.body.messages : []))
 }
 
-// GET /dashboard/:userId — aggregated dashboard
+// GET /dashboard
 export const getUserDashboard = async (req, res) => {
-  try {
-    const { userId } = req.params
-
-    // Fetch gamification profile
-    const profile = await getProfile(userId)
-
-    // Fetch recent submissions
-    let recentSubmissions = []
-    try {
-      const data = await dynamoDb.send(new QueryCommand({
-        TableName: SUBMISSIONS_TABLE,
-        KeyConditionExpression: 'userId = :uid',
-        ExpressionAttributeValues: { ':uid': userId },
-        ScanIndexForward: false,
-        Limit: 10
-      }))
-      recentSubmissions = data.Items || []
-    } catch (e) {
-      // Table might not exist yet
-    }
-
-    // Calculate stats
-    const totalSubmissions = recentSubmissions.length
-    const acceptedSubmissions = recentSubmissions.filter(s => s.verdict === 'Accepted').length
-
-    const dashboard = {
-      profile: {
-        userId: profile.userId,
-        xp: profile.xp || 0,
-        level: profile.level || 0,
-        totalSolved: profile.totalSolved || 0,
-        easySolved: profile.easySolved || 0,
-        mediumSolved: profile.mediumSolved || 0,
-        hardSolved: profile.hardSolved || 0,
-        currentStreak: profile.currentStreak || 0,
-        maxStreak: profile.maxStreak || 0,
-        badges: profile.badges || [],
-        languageUsage: profile.languageUsage || {},
-        heatmap: profile.heatmap || {}
-      },
-      stats: {
-        totalSubmissions,
-        acceptedSubmissions,
-        acceptanceRate: totalSubmissions > 0 ? Math.round((acceptedSubmissions / totalSubmissions) * 100) : 0
-      },
-      recentSubmissions: recentSubmissions.map(s => ({
-        submissionId: s.submissionId,
-        problemId: s.problemId,
-        problemTitle: s.problemTitle,
-        language: s.language,
-        verdict: s.verdict,
-        timestamp: s.timestamp
-      }))
-    }
-
-    res.json(dashboard)
-  } catch (err) {
-    console.error('Dashboard Error:', err)
-    res.status(500).json({ error: 'Failed to fetch dashboard' })
-  }
+  const userId = req.user.userId
+  const [profile, subs] = await Promise.all([
+    getProfile(userId),
+    dynamoDb.send(new QueryCommand({
+      TableName: SUBMISSIONS_TABLE, KeyConditionExpression: 'userId = :uid',
+      ExpressionAttributeValues: { ':uid': userId }, ScanIndexForward: false
+    }))
+  ])
+  const all = subs.Items || []
+  const accepted = all.filter(s => s.verdict === 'Accepted').length
+  res.json({
+    profile: publicProfile(profile),
+    stats: {
+      totalSubmissions: all.length,
+      acceptedSubmissions: accepted,
+      acceptanceRate: all.length ? Math.round((accepted / all.length) * 100) : 0
+    },
+    recentSubmissions: all.slice(0, 10).map(s => ({
+      submissionId: s.submissionId, problemId: s.problemId, problemTitle: s.problemTitle,
+      language: s.language, verdict: s.verdict, timestamp: s.timestamp, difficulty: s.difficulty
+    }))
+  })
 }
 
-// GET /gamification/:userId — gamification profile
+// GET /gamification
 export const getGamificationProfile = async (req, res) => {
-  try {
-    const { userId } = req.params
-    const profile = await getProfile(userId)
-
-    res.json({
-      ...profile,
-      nextLevelXP: Math.pow((profile.level || 0) + 1, 2) * 100,
-      allBadges: (await import('../services/gamificationService.js')).getAllBadges()
-    })
-  } catch (err) {
-    console.error('Gamification Profile Error:', err)
-    res.status(500).json({ error: 'Failed to fetch gamification profile' })
-  }
+  const profile = await getProfile(req.user.userId)
+  res.json({ ...publicProfile(profile), allBadges: getAllBadges() })
 }

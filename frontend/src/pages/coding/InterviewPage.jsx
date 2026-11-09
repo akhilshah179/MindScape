@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react'
-import { useOutletContext } from 'react-router-dom'
 import { aiInterviewQuestions, aiMockInterview } from '../../services/coding/codingApi'
 
 const TOPICS = [
@@ -12,7 +11,6 @@ const TOPICS = [
 ]
 
 export default function InterviewPage() {
-  const { user } = useOutletContext() || {}
   const [selectedTopic, setSelectedTopic] = useState(null)
   const [questions, setQuestions] = useState([])
   const [loadingQ, setLoadingQ] = useState(false)
@@ -59,7 +57,7 @@ export default function InterviewPage() {
       const data = await aiMockInterview({ topic: selectedTopic.name, messages: newMsgs })
       setMockMessages(prev => [...prev, { role: 'assistant', content: data.reply || data.response || data.content || 'Could you elaborate on that?' }])
     } catch (err) {
-      setMockMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }])
+      setMockMessages(prev => [...prev, { role: 'assistant', content: `Sorry, something went wrong: ${err.message}` }])
     } finally {
       setMockLoading(false)
     }

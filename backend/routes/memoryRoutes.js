@@ -1,11 +1,10 @@
 import express from 'express'
 import { getMemory, setMemory, deleteMemory, clearAllMemory } from '../controllers/memoryController.js'
+import { asyncHandler } from '../middleware/http.js'
 
 const router = express.Router()
-
-router.get('/:userId', getMemory)
-router.post('/:userId', setMemory)
-router.delete('/:userId/clear', clearAllMemory)
-router.delete('/:userId/:key', deleteMemory)
-
+router.get('/', asyncHandler(getMemory))
+router.post('/', asyncHandler(setMemory))
+router.delete('/', asyncHandler(clearAllMemory))
+router.delete('/:key', asyncHandler(deleteMemory))
 export default router

@@ -1,83 +1,75 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import Landing from './pages/Landing'
-import Signup from './pages/Signup'
-import VerifyOTP from './pages/VerifyOTP'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Meeting from './pages/Meeting'
-import ProtectedRoute from './components/ProtectedRoute'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
+import ProtectedRoute, { GuestOnly, FullScreenLoader } from './components/ProtectedRoute'
+import ErrorBoundary from './components/ErrorBoundary'
+import { AuthProvider } from './context/AuthContext'
+import { ToastProvider } from './components/ui'
+import AppShell from './components/layout/AppShell'
 
-// Coding Arena
-import CodingArena from './pages/coding/CodingArena'
-import CodingDashboard from './pages/coding/CodingDashboard'
-import ProblemsPage from './pages/coding/ProblemsPage'
-import ProblemDetail from './pages/coding/ProblemDetail'
-import ContestsPage from './pages/coding/ContestsPage'
-import ContestDetail from './pages/coding/ContestDetail'
-import InterviewPage from './pages/coding/InterviewPage'
-import LiveCodingRoom from './components/coding/LiveCodingRoom'
+// Route-level code splitting: Three.js, Monaco and LiveKit load only where used.
+const Landing = lazy(() => import('./pages/Landing'))
+const Login = lazy(() => import('./pages/Login'))
+const Signup = lazy(() => import('./pages/Signup'))
+const VerifyOTP = lazy(() => import('./pages/VerifyOTP'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Meetings = lazy(() => import('./pages/Meetings'))
+const Meeting = lazy(() => import('./pages/Meeting'))
+const CodingArena = lazy(() => import('./pages/coding/CodingArena'))
+const CodingDashboard = lazy(() => import('./pages/coding/CodingDashboard'))
+const ProblemsPage = lazy(() => import('./pages/coding/ProblemsPage'))
+const ProblemDetail = lazy(() => import('./pages/coding/ProblemDetail'))
+const ContestsPage = lazy(() => import('./pages/coding/ContestsPage'))
+const ContestDetail = lazy(() => import('./pages/coding/ContestDetail'))
+const InterviewPage = lazy(() => import('./pages/coding/InterviewPage'))
+const StudyMateAI = lazy(() => import('./pages/ai/StudyMateAI'))
+const AIChatPage = lazy(() => import('./pages/ai/AIChatPage'))
 
-// StudyMate AI
-import StudyMateAI from './pages/ai/StudyMateAI'
-import AIChatPage from './pages/ai/AIChatPage'
+const shell = (el, opts) => <ProtectedRoute><AppShell {...opts}>{el}</AppShell></ProtectedRoute>
+
+function LegacyMeetingRedirect() {
+  const { roomId } = useParams()
+  return <Navigate to={`/meetings/${roomId}`} replace />
+}
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/verify" element={<VerifyOTP />} />
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meeting/:roomId"
-          element={
-            <ProtectedRoute>
-              <Meeting />
-            </ProtectedRoute>
-          }
-        />
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <Suspense fallback={<FullScreenLoader />}>
+              <Routes>
+                <Route path="/" element={<Landing />} />
+                <Route path="/signup" element={<GuestOnly><Signup /></GuestOnly>} />
+                <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
+                <Route path="/verify" element={<VerifyOTP />} />
 
-        {/* Coding Arena Routes */}
-        <Route
-          path="/coding"
-          element={
-            <ProtectedRoute>
-              <CodingArena />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<CodingDashboard />} />
-          <Route path="dashboard" element={<CodingDashboard />} />
-          <Route path="problems" element={<ProblemsPage />} />
-          <Route path="problem/:id" element={<ProblemDetail />} />
-          <Route path="contests" element={<ContestsPage />} />
-          <Route path="contest/:id" element={<ContestDetail />} />
-          <Route path="interview" element={<InterviewPage />} />
-          <Route path="room/:roomId" element={<LiveCodingRoom />} />
-        </Route>
+                <Route path="/dashboard" element={shell(<Dashboard />)} />
+                <Route path="/meetings" element={shell(<Meetings />)} />
+                <Route path="/meetings/:roomId" element={<ProtectedRoute><Meeting /></ProtectedRoute>} />
+                <Route path="/meeting/:roomId" element={<LegacyMeetingRedirect />} />
 
-        {/* StudyMate AI Routes */}
-        <Route
-          path="/ai"
-          element={
-            <ProtectedRoute>
-              <StudyMateAI />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<AIChatPage />} />
-          <Route path="chat/:chatId" element={<AIChatPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+                <Route path="/coding" element={shell(<CodingArena />, { fullBleed: true })}>
+                  <Route index element={<CodingDashboard />} />
+                  <Route path="dashboard" element={<CodingDashboard />} />
+                  <Route path="problems" element={<ProblemsPage />} />
+                  <Route path="problem/:id" element={<ProblemDetail />} />
+                  <Route path="contests" element={<ContestsPage />} />
+                  <Route path="contest/:id" element={<ContestDetail />} />
+                  <Route path="interview" element={<InterviewPage />} />
+                </Route>
+
+                <Route path="/ai" element={shell(<StudyMateAI />, { fullBleed: true })}>
+                  <Route index element={<AIChatPage />} />
+                  <Route path="chat/:chatId" element={<AIChatPage />} />
+                </Route>
+
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }

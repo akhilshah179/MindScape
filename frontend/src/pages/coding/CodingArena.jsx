@@ -1,77 +1,56 @@
-import { useState, useEffect } from 'react'
-import { Outlet } from 'react-router-dom'
-import { getAuthUser } from '../../utils/auth'
-import CodingSidebar from '../../components/coding/CodingSidebar'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { BarChart3, ListTree, Mic2, Trophy, Zap } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
+import { fetchGamification } from '../../services/coding/codingApi'
+import { cx } from '../../components/ui'
 
+const NAV = [
+  { to: '/coding', label: 'Overview', icon: BarChart3, end: true },
+  { to: '/coding/problems', label: 'Problems', icon: ListTree },
+  { to: '/coding/contests', label: 'Contests', icon: Trophy },
+  { to: '/coding/interview', label: 'Interview prep', icon: Mic2 },
+]
+
+/** Coding Arena uses the dark palette everywhere (editor-style workspace). */
 export default function CodingArena() {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const { user } = useAuth()
+  const location = useLocation()
+  const [profile, setProfile] = useState(null)
+  const inWorkspace = /^\/coding\/problem\//.test(location.pathname)
 
-  useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const u = await getAuthUser()
-        setUser({
-          userId: u.userId,
-          name: u.name,
-          email: u.email,
-        })
-      } catch (err) {
-        console.error('Failed to load user:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadUser()
-  }, [])
+  const refreshProfile = () => fetchGamification().then(setProfile).catch(() => {})
+  useEffect(() => { refreshProfile() }, [])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative w-12 h-12">
-            <div className="absolute inset-0 rounded-xl border-2 border-indigo-500/20 animate-pulse" />
-            <div className="absolute inset-0 rounded-xl border-2 border-transparent border-t-indigo-500 animate-spin" />
-            <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-indigo-400">{'</>'}</span>
-          </div>
-          <p className="text-white/30 text-sm">Loading Coding Arena...</p>
-        </div>
-      </div>
-    )
-  }
+  const pct = profile ? Math.min(100, Math.round(((profile.xp - profile.currentLevelXP) / Math.max(1, profile.nextLevelXP - profile.currentLevelXP)) * 100)) : 0
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white flex">
-      {/* Desktop Sidebar */}
-      <div className="hidden md:flex">
-        <CodingSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(c => !c)} />
-      </div>
-
-      {/* Mobile nav overlay */}
-      {mobileNavOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setMobileNavOpen(false)}>
-          <div className="w-56 h-full" onClick={e => e.stopPropagation()}>
-            <CodingSidebar collapsed={false} />
+    <div className="theme-dark h-full flex flex-col bg-canvas text-ink">
+      {!inWorkspace && (
+        <div className="shrink-0 border-b bg-surface/60">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
+            <nav className="flex items-center gap-1 overflow-x-auto thin-scroll flex-1" aria-label="Coding Arena">
+              {NAV.map(n => (
+                <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => cx('inline-flex items-center gap-2 h-9 px-3 rounded-lg text-sm whitespace-nowrap transition-colors', isActive ? 'bg-surface-3 text-ink' : 'text-ink-3 hover:text-ink hover:bg-surface-2')}>
+                  <n.icon className="w-4 h-4" />{n.label}
+                </NavLink>
+              ))}
+            </nav>
+            {profile && (
+              <div className="hidden sm:flex items-center gap-3 shrink-0" title={`${profile.xp} XP · ${profile.nextLevelXP - profile.xp} XP to level ${profile.level + 1}`}>
+                <span className="w-8 h-8 rounded-lg bg-accent-gradient text-white text-xs font-bold flex items-center justify-center shadow-glow">{profile.level}</span>
+                <div className="w-28">
+                  <div className="flex justify-between text-[10px] text-ink-3"><span className="inline-flex items-center gap-1"><Zap className="w-3 h-3 text-warn" />{profile.xp} XP</span><span>Lv {profile.level + 1}</span></div>
+                  <div className="h-1.5 rounded-full bg-surface-3 mt-1 overflow-hidden"><div className="h-full bg-accent-gradient" style={{ width: `${pct}%` }} /></div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
-
-      {/* Main content */}
-      <main className="flex-1 min-h-screen overflow-auto">
-        {/* Mobile top bar */}
-        <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#08080d] border-b border-white/[0.06]">
-          <button onClick={() => setMobileNavOpen(true)} className="text-white/50 hover:text-white/70 text-xl">☰</button>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-[8px] font-bold">{'</>'}</div>
-            <span className="text-sm font-semibold text-white/80">Coding Arena</span>
-          </div>
-          <div className="w-6" />
-        </div>
-
-        <Outlet context={{ user }} />
-      </main>
+      <div className={cx('flex-1 min-h-0', inWorkspace ? 'overflow-hidden' : 'overflow-y-auto thin-scroll')}>
+        <Outlet context={{ user, profile, refreshProfile }} />
+      </div>
     </div>
   )
 }

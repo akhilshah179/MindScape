@@ -1,22 +1,23 @@
 import { useState, useCallback } from 'react'
 import { aiReviewCode, aiGetHint, aiDebugCode } from '../../services/coding/codingApi'
 
+/** AI review / hints / debugging. Errors are surfaced via `error` (shown in the panels). */
 export function useAIReview() {
   const [reviewResult, setReviewResult] = useState(null)
   const [hints, setHints] = useState([null, null, null])
   const [debugResult, setDebugResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [activeAction, setActiveAction] = useState(null)
+  const [error, setError] = useState(null)
 
-  const reviewCode = useCallback(async ({ code, language, problemTitle }) => {
+  const run = useCallback(async (action, fn) => {
     setLoading(true)
-    setActiveAction('review')
+    setActiveAction(action)
+    setError(null)
     try {
-      const data = await aiReviewCode({ code, language, problemTitle })
-      setReviewResult(data)
-      return data
+      return await fn()
     } catch (err) {
-      console.error('AI Review Error:', err)
+      setError({ action, message: err.message })
       return null
     } finally {
       setLoading(false)
@@ -24,57 +25,25 @@ export function useAIReview() {
     }
   }, [])
 
-  const getHint = useCallback(async ({ problemId, hintLevel }) => {
-    setLoading(true)
-    setActiveAction('hint')
-    try {
-      const data = await aiGetHint({ problemId, hintLevel })
-      setHints(prev => {
-        const next = [...prev]
-        next[hintLevel - 1] = data
-        return next
-      })
-      return data
-    } catch (err) {
-      console.error('AI Hint Error:', err)
-      return null
-    } finally {
-      setLoading(false)
-      setActiveAction(null)
-    }
-  }, [])
+  const reviewCode = useCallback((args) => run('review', async () => {
+    const data = await aiReviewCode(args)
+    setReviewResult(data)
+    return data
+  }), [run])
 
-  const debugCode = useCallback(async ({ code, language, error, userId }) => {
-    setLoading(true)
-    setActiveAction('debug')
-    try {
-      const data = await aiDebugCode({ code, language, error, userId })
-      setDebugResult(data)
-      return data
-    } catch (err) {
-      console.error('AI Debug Error:', err)
-      return null
-    } finally {
-      setLoading(false)
-      setActiveAction(null)
-    }
-  }, [])
+  const getHint = useCallback(({ problemId, hintLevel }) => run('hint', async () => {
+    const data = await aiGetHint({ problemId, hintLevel })
+    setHints(prev => { const next = [...prev]; next[hintLevel - 1] = data; return next })
+    return data
+  }), [run])
 
-  const clearAll = useCallback(() => {
-    setReviewResult(null)
-    setHints([null, null, null])
-    setDebugResult(null)
-  }, [])
+  const debugCode = useCallback((args) => run('debug', async () => {
+    const data = await aiDebugCode(args)
+    setDebugResult(data)
+    return data
+  }), [run])
 
-  return {
-    reviewResult,
-    hints,
-    debugResult,
-    loading,
-    activeAction,
-    reviewCode,
-    getHint,
-    debugCode,
-    clearAll
-  }
+  const clearAll = useCallback(() => { setReviewResult(null); setHints([null, null, null]); setDebugResult(null); setError(null) }, [])
+
+  return { reviewResult, hints, debugResult, loading, activeAction, error, reviewCode, getHint, debugCode, clearAll }
 }

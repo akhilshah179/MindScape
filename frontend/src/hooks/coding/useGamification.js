@@ -7,7 +7,7 @@ export function useGamification(userId) {
   const [error, setError] = useState(null)
 
   const loadProfile = useCallback(async () => {
-    if (!userId) return
+
     setLoading(true)
     try {
       const data = await fetchGamification(userId)

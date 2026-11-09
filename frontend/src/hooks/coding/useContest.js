@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { fetchContests, fetchContest, createContest, joinContest, fetchLeaderboard } from '../../services/coding/codingApi'
 
 export function useContests() {
@@ -12,20 +12,16 @@ export function useContests() {
       const data = await fetchContests()
       setContests(data.contests || data || [])
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load contests')
+      setError(err.message)
     } finally {
       setLoading(false)
     }
   }, [])
 
   const handleCreate = useCallback(async (data) => {
-    try {
-      const result = await createContest(data)
-      await loadContests()
-      return result
-    } catch (err) {
-      throw err
-    }
+    const result = await createContest(data)
+    await loadContests()
+    return result
   }, [loadContests])
 
   return { contests, loading, error, loadContests, createContest: handleCreate }
@@ -35,32 +31,29 @@ export function useContest(contestId) {
   const [contest, setContest] = useState(null)
   const [leaderboard, setLeaderboard] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
-  const loadContest = useCallback(async () => {
+  const loadContest = useCallback(async ({ quiet = false } = {}) => {
     if (!contestId) return
-    setLoading(true)
+    if (!quiet) setLoading(true)
     try {
-      const [contestData, lbData] = await Promise.all([
-        fetchContest(contestId),
-        fetchLeaderboard(contestId).catch(() => ({ participants: [] }))
-      ])
-      setContest(contestData)
-      setLeaderboard(lbData.participants || lbData || [])
+      const [c, lb] = await Promise.all([fetchContest(contestId), fetchLeaderboard(contestId)])
+      setContest(c)
+      setLeaderboard(lb.leaderboard || [])
+      setError(null)
     } catch (err) {
-      console.error('Load contest error:', err)
+      setError(err.message)
     } finally {
       setLoading(false)
     }
   }, [contestId])
 
-  const handleJoin = useCallback(async (data) => {
-    try {
-      await joinContest(contestId, data)
-      await loadContest()
-    } catch (err) {
-      throw err
-    }
+  useEffect(() => { loadContest() }, [loadContest])
+
+  const handleJoin = useCallback(async () => {
+    await joinContest(contestId)
+    await loadContest({ quiet: true })
   }, [contestId, loadContest])
 
-  return { contest, leaderboard, loading, loadContest, joinContest: handleJoin }
+  return { contest, leaderboard, loading, error, loadContest, joinContest: handleJoin }
 }

@@ -35,3 +35,20 @@ uploads/
 coverage/
 node_modules
 
+
+# Local database (contains user data) and its temp files
+backend/local-db.json
+backend/local-db.json.*.tmp
+
+# Secrets & credentials (never commit)
+.env.*
+!.env.example
+*.pem
+*.key
+.aws/
+credentials.json
+
+# Temp / editor / tooling
+*.tmp
+tmp/
+.claude/

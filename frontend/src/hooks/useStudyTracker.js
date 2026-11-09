@@ -1,5 +1,6 @@
 // useStudyTracker.js
-// Central hook for all study analytics stored in localStorage.
+// Study analytics. Streak/sessions live in studymate_* keys (synced to the server by useCloudSync);
+// quiz scores come from the API.
 // Data shape:
 //   studymate_streak   : { lastDate: 'YYYY-MM-DD', count: N, longestStreak: N }
 //   studymate_sessions : [{ date, durationSeconds, subjectName }]
@@ -25,7 +26,7 @@ function load(key, fallback) {
 }
 
 function save(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch { }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full or blocked */ }
 }
 
 // ── Streak ────────────────────────────────────────────────────────────────────
@@ -67,8 +68,9 @@ export function useSessionTimer(subjectName) {
 
     // Save session on unmount
     useEffect(() => {
+        const started = startRef.current
         return () => {
-            const seconds = Math.round((Date.now() - startRef.current) / 1000)
+            const seconds = Math.round((Date.now() - started) / 1000)
             if (seconds < 10) return                       // ignore accidental opens
             const sessions = load(KEYS.sessions, [])
             sessions.push({ date: today(), durationSeconds: seconds, subjectName: subjectName || 'General' })
@@ -80,84 +82,46 @@ export function useSessionTimer(subjectName) {
     }, [subjectName])
 }
 
-// ── Quiz scores ───────────────────────────────────────────────────────────────
-export function saveQuizScore({ subjectName, fileName, score, total, questions, answers }) {
-    const wrongTopics = (questions || [])
-        .filter((_, i) => !answers[i]?.correct)
-        .map(q => q.question?.slice(0, 80) || '')               // store first 80 chars of wrong Qs
-
-    const entry = {
-        id: Date.now(),
-        date: today(),
-        subjectName: subjectName || 'General',
-        fileName: fileName || 'document.pdf',
-        score: score || 0,
-        total: total || 5,
-        pct: Math.round(((score || 0) / (total || 5)) * 100),
-        wrongTopics,
-    }
-
-    const scores = load(KEYS.scores, [])
-    scores.push(entry)
-    save(KEYS.scores, scores)
-    window.dispatchEvent(new Event('studymate_scores_updated'))
-    return entry
+// ── Quiz scores (server is the source of truth; graded and stored by the API) ──
+let scoresCache = null
+let scoresPromise = null
+const scoreListeners = new Set()
+export function refreshQuizScores() {
+    scoresPromise = import('../services/fileApi')
+        .then(({ getUserQuizScores }) => getUserQuizScores())
+        .then(list => { scoresCache = list; scoreListeners.forEach(l => l(list)); return list })
+        .catch(err => { console.warn('Could not load quiz scores:', err.message); return scoresCache || [] })
+        .finally(() => { scoresPromise = null })
+    return scoresPromise
 }
+if (typeof window !== 'undefined') window.addEventListener('studymate_scores_updated', () => refreshQuizScores())
 
-export function useQuizScores(userId = null) {
-    const [scores, setScores] = useState(() => load(KEYS.scores, []))
-    const [isLoading, setIsLoading] = useState(false)
-
-    const refresh = useCallback(async () => {
-        const local = load(KEYS.scores, [])
-        setScores(local)
-
-        // Asynchronously synchronize with backend database
-        try {
-            const { getUserQuizScores } = await import('../services/fileApi')
-            const dbScores = await getUserQuizScores(userId)
-            if (Array.isArray(dbScores) && dbScores.length > 0) {
-                // Merge unique scores by timestamp / id
-                const merged = [...dbScores]
-                for (const l of local) {
-                    if (!merged.some(m => m.id === l.id || (m.timestamp && l.timestamp && m.timestamp === l.timestamp))) {
-                        merged.push(l)
-                    }
-                }
-                merged.sort((a, b) => new Date(b.timestamp || b.date || 0) - new Date(a.timestamp || a.date || 0))
-                save(KEYS.scores, merged)
-                setScores(merged)
-            }
-        } catch (_) {}
-    }, [userId])
+export function useQuizScores() {
+    const [scores, setScores] = useState(() => scoresCache || [])
+    const [isLoading, setIsLoading] = useState(scoresCache === null)
 
     useEffect(() => {
-        refresh()
-        window.addEventListener('studymate_scores_updated', refresh)
-        return () => window.removeEventListener('studymate_scores_updated', refresh)
-    }, [refresh])
+        const l = (list) => { setScores(list); setIsLoading(false) }
+        scoreListeners.add(l)
+        if (scoresCache === null && !scoresPromise) refreshQuizScores()
+        else if (scoresCache) l(scoresCache)
+        return () => scoreListeners.delete(l)
+    }, [])
 
-    // Per-subject aggregates
     const bySubject = scores.reduce((acc, s) => {
         const subj = s.subjectName || 'General'
-        if (!acc[subj]) acc[subj] = []
-        acc[subj].push(s)
+        ;(acc[subj] ||= []).push(s)
         return acc
     }, {})
 
-    // Weak topics = questions missed >= 1 time
     const weakTopics = Object.entries(
-        scores.flatMap(s => s.wrongTopics || []).reduce((acc, t) => {
-            if (t) acc[t] = (acc[t] || 0) + 1
-            return acc
-        }, {})
+        scores.flatMap(s => s.wrongTopics || []).reduce((acc, t) => { if (t) acc[t] = (acc[t] || 0) + 1; return acc }, {})
     )
-        .filter(([, count]) => count >= 1)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 8)
         .map(([topic, count]) => ({ topic, count }))
 
-    return { scores, bySubject, weakTopics, refresh, isLoading }
+    return { scores, bySubject, weakTopics, refresh: refreshQuizScores, isLoading }
 }
 
 // ── Sessions analytics ────────────────────────────────────────────────────────

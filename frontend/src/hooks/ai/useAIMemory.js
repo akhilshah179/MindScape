@@ -1,90 +1,39 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import * as chatApi from '../../services/ai/chatApi'
 
-/**
- * Hook for managing AI memory — user preferences, goals, learning context.
- */
-export function useAIMemory(userId) {
-    const [memories, setMemories] = useState([])
-    const [isLoading, setIsLoading] = useState(false)
-    const [loaded, setLoaded] = useState(false)
+// Must match the backend's normalizeMemoryKey
+const norm = (k) => String(k || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60)
 
-    // Load memory on mount
-    useEffect(() => {
-        if (!userId) return
-        loadMemory()
-    }, [userId])
+export function useAIMemory({ onError } = {}) {
+  const [memories, setMemories] = useState([])
+  const [loaded, setLoaded] = useState(false)
 
-    const loadMemory = useCallback(async () => {
-        if (!userId) return
-        setIsLoading(true)
-        try {
-            const data = await chatApi.getMemory(userId)
-            setMemories(data)
-        } catch (err) {
-            console.error('Failed to load memory:', err)
-        } finally {
-            setIsLoading(false)
-            setLoaded(true)
-        }
-    }, [userId])
+  const load = useCallback(async () => {
+    try { setMemories(await chatApi.getMemory()) }
+    catch (err) { onError?.(`Couldn't load memory: ${err.message}`) }
+    finally { setLoaded(true) }
+  }, [onError])
 
-    const setMemoryItem = useCallback(async (key, value) => {
-        if (!userId || !key) return
-        const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_')
-        const trimmedVal = String(value).trim()
+  useEffect(() => { load() }, [load])
 
-        // Optimistic update
-        setMemories(prev => {
-            const existing = prev.findIndex(m => m.memoryKey === normalizedKey)
-            if (existing >= 0) {
-                const updated = [...prev]
-                updated[existing] = { ...updated[existing], value: trimmedVal, source: 'manual', updatedAt: new Date().toISOString() }
-                return updated
-            }
-            return [...prev, { userId, memoryKey: normalizedKey, value: trimmedVal, source: 'manual', updatedAt: new Date().toISOString() }]
-        })
+  const setMemoryItem = useCallback(async (key, value) => {
+    const memoryKey = norm(key)
+    if (!memoryKey) return
+    const item = { memoryKey, value: String(value).trim(), source: 'manual', updatedAt: new Date().toISOString() }
+    setMemories(prev => [item, ...prev.filter(m => m.memoryKey !== memoryKey)])
+    try { await chatApi.setMemoryItem(null, key, value) } catch (err) { onError?.(err.message); load() }
+  }, [load, onError])
 
-        try {
-            await chatApi.setMemoryItem(userId, normalizedKey, trimmedVal)
-        } catch (err) {
-            console.error('Failed to set memory:', err)
-            loadMemory()
-        }
-    }, [userId, loadMemory])
+  const deleteMemoryItem = useCallback(async (key) => {
+    setMemories(prev => prev.filter(m => m.memoryKey !== key))
+    try { await chatApi.deleteMemoryItem(null, key) } catch (err) { onError?.(err.message); load() }
+  }, [load, onError])
 
-    const deleteMemoryItem = useCallback(async (key) => {
-        if (!userId || !key) return
-        const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_')
+  const clearAll = useCallback(async () => {
+    const before = memories
+    setMemories([])
+    try { await chatApi.clearAllMemory() } catch (err) { setMemories(before); onError?.(err.message) }
+  }, [memories, onError])
 
-        // Optimistic update
-        setMemories(prev => prev.filter(m => m.memoryKey !== normalizedKey && m.memoryKey !== key))
-
-        try {
-            await chatApi.deleteMemoryItem(userId, normalizedKey)
-        } catch (err) {
-            console.error('Failed to delete memory:', err)
-            loadMemory()
-        }
-    }, [userId, loadMemory])
-
-    const clearAll = useCallback(async () => {
-        if (!userId) return
-        try {
-            await chatApi.clearAllMemory(userId)
-            setMemories([])
-        } catch (err) {
-            console.error('Failed to clear memory:', err)
-        }
-    }, [userId])
-
-    return {
-        memories,
-        isLoading,
-        loaded,
-        setMemoryItem,
-        deleteMemoryItem,
-        clearAll,
-        refresh: loadMemory,
-    }
+  return { memories, loaded, setMemoryItem, deleteMemoryItem, clearAll, refresh: load }
 }

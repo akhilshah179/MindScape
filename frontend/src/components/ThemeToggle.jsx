@@ -1,25 +1,23 @@
-import { useTheme } from '../hooks/useTheme';
+import { AnimatePresence, motion } from 'framer-motion'
+import { Moon, Sun } from 'lucide-react'
+import { useTheme } from '../hooks/useTheme'
+import { cx } from './ui'
 
 export default function ThemeToggle({ className }) {
-  const { theme, toggleTheme } = useTheme();
-
+  const { theme, toggleTheme } = useTheme()
+  const dark = theme === 'dark'
   return (
     <button
       onClick={toggleTheme}
-      className={className || "fixed top-6 right-6 z-50 p-3 rounded-full transition-all duration-300 backdrop-blur-xl border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 shadow-sm hover:scale-110 active:scale-95"}
-      aria-label="Toggle theme"
+      aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+      title={dark ? 'Light theme' : 'Dark theme'}
+      className={cx('relative w-10 h-10 inline-flex items-center justify-center rounded-xl text-ink-2 hover:text-ink hover:bg-surface-2 transition-colors overflow-hidden', className)}
     >
-      {theme === 'dark' ? (
-        // Sun Icon
-        <svg className="w-5 h-5 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      ) : (
-        // Moon Icon
-        <svg className="w-5 h-5 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-        </svg>
-      )}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span key={theme} initial={{ y: -14, opacity: 0, rotate: -40 }} animate={{ y: 0, opacity: 1, rotate: 0 }} exit={{ y: 14, opacity: 0, rotate: 40 }} transition={{ duration: 0.2 }}>
+          {dark ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+        </motion.span>
+      </AnimatePresence>
     </button>
-  );
+  )
 }
